@@ -29,27 +29,31 @@ impl Builder {
     self.l = l;
   }
 
-  pub fn build<T, P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshDiskAnnMap<P, V>{
-    FreshDiskAnnMap::new(points, values, self)
+  pub fn build<P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshVamanaMap<P, V>{
+    FreshVamanaMap::new(points, values, self)
   }
 }
 
 
 
-pub struct FreshDiskAnnMap<P, V> {
-  ann: FreshDiskAnn<P>,
+pub struct FreshVamanaMap<P, V> {
+  ann: FreshVamana<P>,
   values: Vec<V>,
 }
 
-impl<P, V> FreshDiskAnnMap<P, V>
+impl<P, V> FreshVamanaMap<P, V>
 where
     P: Point,
     V: Clone,
 {
   fn new(points: Vec<P>, values: Vec<V>, builder: Builder) -> Self {
-    let ann = FreshDiskAnn::new(points, builder);
+    let ann = FreshVamana::new(points, builder);
 
-    Self { ann, values}
+    Self {ann, values}
+  }
+  pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
+    let (results, _visited) = self.ann.greedy_search(&query_point, 30, self.ann.builder.l);
+    results.into_iter().map(|(dist, i)| (dist, self.values[i].clone())).collect()
   }
 }
 
@@ -60,31 +64,71 @@ struct Node<P> {
   id: usize,
 }
 
-struct FreshDiskAnn<P>
+struct FreshVamana<P>
 {
   nodes: Vec<Node<P>>,
   centroid: usize,
   builder: Builder,
 }
 
-impl<P> FreshDiskAnn<P>
+impl<P> FreshVamana<P>
 where
     P: Point,
 {
   pub fn new(points: Vec<P>, builder: Builder) -> Self {
-    // Initialize Random Graph
-    let ann = FreshDiskAnn::<P>::random_graph_init(points, builder);
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
 
-    // Robust Prune
+    // Initialize Random Graph
+    let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng);
+
+
+    // Prune Edges
+
+    // let σ denote a random permutation of 1..n
+    let node_len = ann.nodes.len();
+    let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
+    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut loop_count = 0;
+    let total = shuffled.len();
+    // for 1 ≤ i ≤ n do
+    for (_, i) in shuffled {
+      println!("loop: {}/{}", loop_count, total);
+      loop_count += 1;
+
+
+      // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
+      let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
+      // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
+      ann.robust_prune(i, visited);
+
+      // for all points j in Nout(σ(i)) do
+      for j in ann.nodes[i].n_out.clone() {
+        if ann.nodes[j].n_out.contains(&i) {
+          continue;
+        } else {
+          ann.nodes[j].n_out.push(i);
+        }
+
+        let j_point = &ann.nodes[j].p;
+
+        // if |Nout(j) ∪ {σ(i)}| > R then run RobustPrune(j, Nout(j) ∪ {σ(i)}, α, R) to update out-neighbors of j
+        if ann.nodes[j].n_out.len() > ann.builder.r {
+          // robust_prune requires (dist(xp, p'), index)
+          let v: Vec<(f32, usize)> = ann.nodes[j].n_out.clone().into_iter()
+            .map(|out_i: usize| 
+              (ann.nodes[out_i].p.distance(j_point), out_i)
+            ).collect();
+
+          ann.robust_prune(j, v);
+        }
+      }
+    }
 
     ann
   }
 
-  fn random_graph_init(points: Vec<P>, builder: Builder) -> Self {
-    // let a = builder.a;
-    let r = builder.r;
-    // let l = builder.l;
-    let mut rng = SmallRng::seed_from_u64(builder.seed);
+  fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
 
     if points.is_empty() {
       return Self {
@@ -126,7 +170,7 @@ where
       let self_node = &mut nodes[self_i];
       // Add random out nodes
       let mut back_links = Vec::new();
-      while self_node.n_out.len() < r {
+      while self_node.n_out.len() < builder.r {
         let out_i = rng.gen_range(0..points_len as usize);
 
         // To not contain self-reference and duplication
@@ -152,16 +196,16 @@ where
 
   }
 
-  fn greedy_search(&self, xq: P, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) { // k-anns, visited
+  fn greedy_search(&self, xq: &P, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) { // k-anns, visited
     assert!(l >= k);
     let s = self.centroid;
     let mut visited: Vec<(f32, usize)> = Vec::new();
-    let mut list: Vec<(f32, usize)> = vec![(self.nodes[s].p.distance(&xq), s)];
+    let mut list: Vec<(f32, usize)> = vec![(self.nodes[s].p.distance(xq), s)];
 
     let mut working = list.clone(); // Because list\visited == list at beginning
     while working.len() > 0 {
 
-      println!("list: {:?}, visited: {:?} \n\n\n", list, visited);
+      // println!("list: {:?}, visited: {:?} \n\n\n", list, visited);
 
 
       let nearest = find_nearest(&mut working);
@@ -312,8 +356,9 @@ mod tests {
   #[test]
   fn fresh_disk_ann_new_empty() {
     let builder = Builder::default();
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
 
-    let ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(Vec::new(), builder);
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(Vec::new(), builder, &mut rng);
     assert_eq!(ann.nodes.len(), 0);
   }
 
@@ -329,7 +374,7 @@ mod tests {
       Point(vec![a;3])
     }).collect();
 
-    let ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points, builder);
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
     for node in ann.nodes {
       assert_eq!(node.n_out.len(), r);
       assert_ne!(node.n_in.len(), 0);
@@ -340,6 +385,7 @@ mod tests {
   fn fresh_disk_ann_new_centroid() {
 
     let builder = Builder::default();
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
 
     let mut i = 0;
 
@@ -349,8 +395,33 @@ mod tests {
       Point(vec![a;3])
     }).collect();
 
-    let ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points, builder);
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
     assert_eq!(ann.centroid, 49);
+  }
+
+  #[test]
+  fn test_vamana_build() {
+
+    let mut builder = Builder::default();
+    builder.set_l(30);
+    let l = builder.l;
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..1000).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a;3])
+    }).collect();
+
+    let ann: FreshVamana<Point> = FreshVamana::new(points, builder);
+    let xq = Point(vec![0;3]);
+    let k = 10;
+    let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+
+    for i in 0..10 {
+      assert_eq!(k_anns[i].1, i);
+    }
   }
 
   #[test]
@@ -358,6 +429,7 @@ mod tests {
 
     let mut builder = Builder::default();
     builder.set_l(30);
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
 
     let mut i = 0;
@@ -368,10 +440,10 @@ mod tests {
       Point(vec![a;3])
     }).collect();
 
-    let ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points, builder);
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
     let xq = Point(vec![0;3]);
     let k = 10;
-    let (k_anns, _visited) = ann.greedy_search(xq, k, l);
+    let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
     for i in 0..10 {
       assert_eq!(k_anns[i].1, i);
@@ -384,6 +456,7 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     let l = builder.l;
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
 
     let mut i = 0;
 
@@ -396,10 +469,10 @@ mod tests {
     let i = 11;
     let xq = &points[i];
 
-    let mut ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points.clone(), builder);
+    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points.clone(), builder, &mut rng);
     let prev_n_out = ann.nodes[i].n_out.clone();
     let k = 1;
-    let (_k_anns, visited) = ann.greedy_search(xq.clone(), k, l);
+    let (_k_anns, visited) = ann.greedy_search(xq, k, l);
 
     ann.robust_prune(i, visited);
     let pruned_n_out = &ann.nodes[i].n_out;
