@@ -25,6 +25,10 @@ impl Default for Builder {
 
 impl Builder {
 
+  pub fn set_l(&mut self, l: usize) {
+    self.l = l;
+  }
+
   pub fn build<T, P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshDiskAnnMap<P, V>{
     FreshDiskAnnMap::new(points, values, self)
   }
@@ -66,7 +70,7 @@ impl<P> FreshDiskAnn<P>
 where
     P: Point,
 {
-  fn new(points: Vec<P>, builder: Builder) -> Self {
+  pub fn new(points: Vec<P>, builder: Builder) -> Self {
     // Initialize Random Graph
     let ann = FreshDiskAnn::<P>::random_graph_init(points, builder);
 
@@ -142,6 +146,67 @@ where
       nodes,
       centroid,
     }
+
+  }
+
+  fn greedy_search(&self, xq: P, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<usize>) { // k-anns, visited
+    assert!(l >= k);
+    let s = self.centroid;
+    let mut visited: Vec<usize> = Vec::new();
+    let mut list: Vec<(f32, usize)> = vec![(self.nodes[s].p.distance(&xq), s)];
+
+    fn set_diff(a: Vec<(f32, usize)>, b: &Vec<usize>) -> Vec<(f32, usize)> {
+      a.into_iter().filter(|(_, p)| !b.contains(p)).collect()
+    }
+
+    fn find_nearest(c: &mut Vec<(f32, usize)>) -> usize {
+      c.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
+      c[0].1
+    }
+
+    fn resize(list: &mut Vec<(f32, usize)>, size: usize) {
+      list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
+      list.truncate(size)
+    }
+
+    let mut working = list.clone(); // Because list\visited == list at beginning
+    while working.len() > 0 {
+
+      println!("list: {:?}, visited: {:?} \n\n\n", list, visited);
+
+
+      let nearest = find_nearest(&mut working);
+
+      if visited.contains(&nearest) {
+        continue;
+      } else {
+        visited.push(nearest)
+      }
+
+      for out_i in &self.nodes[nearest].n_out {
+        let node = &self.nodes[*out_i];
+        let node_i = node.id;
+
+        let is_contained_in_list = list.iter().filter(|(_, id)| *id == node_i).collect::<Vec<&(f32, usize)>>().len() != 0;
+        if is_contained_in_list {
+          continue;
+        }
+
+        let dist = xq.distance(&node.p);
+        list.push((dist, node_i));
+      }
+
+      if list.len() > l {
+        resize(&mut list, l)
+      }
+
+      working = set_diff(list.clone(), &visited);
+    }
+
+    resize(&mut list, k);
+    let k_anns = list;
+
+    (k_anns, visited)
 
   }
 
@@ -233,5 +298,30 @@ mod tests {
 
     let ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points, builder);
     assert_eq!(ann.centroid, 49);
+  }
+
+  #[test]
+  fn greedy_search() {
+
+    let mut builder = Builder::default();
+    builder.set_l(30);
+    let l = builder.l;
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a;3])
+    }).collect();
+
+    let ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points, builder);
+    let xq = Point(vec![0;3]);
+    let k = 10;
+    let (k_anns, _visited) = ann.greedy_search(xq, k, l);
+
+    for i in 0..10 {
+      assert_eq!(k_anns[i].1, i);
+    }
   }
 }
