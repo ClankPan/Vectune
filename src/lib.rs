@@ -230,7 +230,7 @@ where
       }
       v = rest.to_vec();
 
-      // if α · d(p*, p') <= d(p, p') then remove p'
+      // if α · d(p*, p') <= d(p, p') then remove p' from v
       v.retain(|&(dist_xp_pd, pd)| { // pd is p-dash (p')
         let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
           self.builder.a * dist_pa_pd > dist_xp_pd
@@ -280,14 +280,15 @@ pub trait Point: Clone + Sync {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+
+  use super::{Point as VPoint, *};
   use rand::rngs::SmallRng;
   use rand::{Rng, SeedableRng};
 
 
   #[derive(Clone, Debug)]
   struct Point(Vec<u32>);
-  impl crate::Point for Point {
+  impl VPoint for Point {
       fn distance(&self, other: &Self) -> f32 {
           self.0.iter()
             .zip(other.0.iter())
@@ -374,6 +375,51 @@ mod tests {
 
     for i in 0..10 {
       assert_eq!(k_anns[i].1, i);
+    }
+  }
+
+  #[test]
+  fn test_robust_prune() {
+
+    let mut builder = Builder::default();
+    builder.set_l(30);
+    let l = builder.l;
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a;3])
+    }).collect();
+
+    let i = 11;
+    let xq = &points[i];
+
+    let mut ann: FreshDiskAnn<Point> = FreshDiskAnn::random_graph_init(points.clone(), builder);
+    let prev_n_out = ann.nodes[i].n_out.clone();
+    let k = 1;
+    let (_k_anns, visited) = ann.greedy_search(xq.clone(), k, l);
+
+    ann.robust_prune(i, visited);
+    let pruned_n_out = &ann.nodes[i].n_out;
+    assert_ne!(prev_n_out, *pruned_n_out);
+
+    // let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
+    // self.builder.a * dist_pa_pd > dist_xp_pd
+
+    let mut v = pruned_n_out.clone();
+    while let Some((pa, rest)) = v.split_first() {
+      if rest.len() == 0 {break}
+
+      let pd = rest[0];
+
+      let dist_xp_pd = ann.nodes[pd].p.distance(&xq);
+      let dist_pa_pd = ann.nodes[pd].p.distance(&ann.nodes[*pa].p);
+
+      assert!(ann.builder.a * dist_pa_pd > dist_xp_pd);
+
+      v = rest.to_vec();
     }
   }
 
