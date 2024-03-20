@@ -64,6 +64,7 @@ struct FreshDiskAnn<P>
 {
   nodes: Vec<Node<P>>,
   centroid: usize,
+  builder: Builder,
 }
 
 impl<P> FreshDiskAnn<P>
@@ -89,6 +90,7 @@ where
       return Self {
           nodes: Vec::new(),
           centroid: usize::MAX,
+          builder,
         }
     }
 
@@ -145,29 +147,16 @@ where
     Self {
       nodes,
       centroid,
+      builder,
     }
 
   }
 
-  fn greedy_search(&self, xq: P, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<usize>) { // k-anns, visited
+  fn greedy_search(&self, xq: P, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) { // k-anns, visited
     assert!(l >= k);
     let s = self.centroid;
-    let mut visited: Vec<usize> = Vec::new();
+    let mut visited: Vec<(f32, usize)> = Vec::new();
     let mut list: Vec<(f32, usize)> = vec![(self.nodes[s].p.distance(&xq), s)];
-
-    fn set_diff(a: Vec<(f32, usize)>, b: &Vec<usize>) -> Vec<(f32, usize)> {
-      a.into_iter().filter(|(_, p)| !b.contains(p)).collect()
-    }
-
-    fn find_nearest(c: &mut Vec<(f32, usize)>) -> usize {
-      c.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
-      c[0].1
-    }
-
-    fn resize(list: &mut Vec<(f32, usize)>, size: usize) {
-      list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
-      list.truncate(size)
-    }
 
     let mut working = list.clone(); // Because list\visited == list at beginning
     while working.len() > 0 {
@@ -177,18 +166,17 @@ where
 
       let nearest = find_nearest(&mut working);
 
-      if visited.contains(&nearest) {
+      if is_contained_in(&nearest.1, &visited) {
         continue;
       } else {
         visited.push(nearest)
       }
 
-      for out_i in &self.nodes[nearest].n_out {
+      for out_i in &self.nodes[nearest.1].n_out {
         let node = &self.nodes[*out_i];
         let node_i = node.id;
 
-        let is_contained_in_list = list.iter().filter(|(_, id)| *id == node_i).collect::<Vec<&(f32, usize)>>().len() != 0;
-        if is_contained_in_list {
+        if is_contained_in(&node_i, &list) {
           continue;
         }
 
@@ -197,22 +185,86 @@ where
       }
 
       if list.len() > l {
-        resize(&mut list, l)
+        sort_and_resize(&mut list, l)
       }
 
       working = set_diff(list.clone(), &visited);
     }
 
-    resize(&mut list, k);
+    sort_and_resize(&mut list, k);
     let k_anns = list;
 
     (k_anns, visited)
 
   }
 
-  fn robust_prune(&mut self, point_id: usize) {
-    
+  fn robust_prune(&mut self, xp: usize, mut v: Vec<(f32, usize)>) {
+    let node = &self.nodes[xp];
+
+    // V ← (V ∪ Nout(p)) \ {p}
+    for n_out in &node.n_out {
+      if !is_contained_in(n_out, &v) {
+        let dist = node.p.distance(&self.nodes[*n_out].p);
+        v.push((dist, *n_out))
+      }
+    }
+    retain_from(&xp, &mut v);
+
+    // Delete all back links of each n_out
+    let n_out = &self.nodes[xp].n_out.clone();
+    for out_i in n_out {
+      self.nodes[*out_i].n_in.retain(|&x| x!=xp);
+    }
+    self.nodes[xp].n_out = vec![];
+
+    sort_list_by_dist(&mut v); // sort by d(p, p')
+
+    while let Some((first, rest)) = v.split_first() {
+      let pa = first; // pa is p asterisk (p*), which is nearest point to p in this loop
+      let pa_point = self.nodes[pa.1].p.clone();
+      self.nodes[xp].n_out.push(pa.1);
+      self.nodes[pa.1].n_in.push(xp); // back link
+
+      if self.nodes[xp].n_out.len() == self.builder.r {
+        break;
+      }
+      v = rest.to_vec();
+
+      // if α · d(p*, p') <= d(p, p') then remove p'
+      v.retain(|&(dist_xp_pd, pd)| { // pd is p-dash (p')
+        let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
+          self.builder.a * dist_pa_pd > dist_xp_pd
+      });
+    }
+
   }
+}
+
+
+fn set_diff(a: Vec<(f32, usize)>, b: &Vec<(f32, usize)>) -> Vec<(f32, usize)> {
+  a.into_iter().filter(|(_, p)| !is_contained_in(p, b)).collect()
+}
+
+fn sort_list_by_dist(list: &mut Vec<(f32, usize)>) {
+  list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
+}
+
+fn find_nearest(c: &mut Vec<(f32, usize)>) -> (f32, usize) {
+  sort_list_by_dist(c);
+  c[0]
+}
+
+fn sort_and_resize(list: &mut Vec<(f32, usize)>, size: usize) {
+  list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
+  list.truncate(size)
+}
+
+fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
+  vec.iter().filter(|(_, id)| *id == *i).collect::<Vec<&(f32, usize)>>().len() != 0
+}
+
+fn retain_from(i: &usize, vec: &mut Vec<(f32, usize)>) {
+  vec.retain(|&(_, x)| x!=*i);
 }
 
 
@@ -323,5 +375,49 @@ mod tests {
     for i in 0..10 {
       assert_eq!(k_anns[i].1, i);
     }
+  }
+
+  #[test]
+  fn test_set_diff() {
+    let a = vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)];
+    let b = vec![(0.0, 0), (0.1, 1)];
+
+    let c = set_diff(a, &b);
+    assert_eq!(c, vec![(0.2, 2), (0.3, 3)])
+  }
+
+  #[test]
+  fn test_sort_list_by_dist() {
+    let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+    sort_list_by_dist(&mut a);
+    assert_eq!(a, vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)])
+  }
+
+  #[test]
+  fn test_find_nearest() {
+    let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+    assert_eq!(find_nearest(&mut a), (0.0, 0));
+  }
+
+  #[test]
+  fn test_sort_and_resize() {
+    let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+    sort_and_resize(&mut a, 2);
+    assert_eq!(a, vec![(0.0, 0), (0.1, 1)])
+  }
+
+  #[test]
+  fn test_is_contained_in() {
+    let a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+    assert!(is_contained_in(&0, &a));
+    assert!(!is_contained_in(&10, &a));
+  }
+
+  #[test]
+  fn test_retain_from() {
+    let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+    retain_from(&0, &mut a);
+    assert_eq!(a, vec![(0.2, 2), (0.1, 1), (0.3, 3)])
+
   }
 }
