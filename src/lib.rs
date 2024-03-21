@@ -167,7 +167,7 @@ where
     }
 
     self.cemetery = Vec::new();
-    
+
   }
 
   fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
@@ -604,21 +604,70 @@ mod tests {
     let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
 
     let xq = Point(vec![0;3]);
-    let k = 10;
+    let k = 30;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
-    // for i in 0..10 {
-    //   assert_eq!(k_anns[i].1, i);
-    // }
-
-    ann.inter(k_anns[3].1); // mark as grave
+    // mark as grave
+    ann.inter(k_anns[3].1);
+    ann.inter(k_anns[5].1);
+    ann.inter(k_anns[9].1);
+    let expected = vec![k_anns[3].1, k_anns[5].1, k_anns[9].1];
 
     let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
 
     assert_ne!(k_anns_intered, k_anns);
 
+    let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
+    let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+
+    let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
+    assert_eq!(diff, expected);
+
 
   }
+
+  #[test]
+  fn test_greedy_search_after_removing_graves() {
+
+    let mut builder = Builder::default();
+    builder.set_l(30);
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
+    let l = builder.l;
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a;3])
+    }).collect();
+
+    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+
+    let xq = Point(vec![0;3]);
+    let k = 30;
+    let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+
+    // mark as grave
+    ann.inter(k_anns[3].1);
+    ann.inter(k_anns[5].1);
+    ann.inter(k_anns[9].1);
+    ann.remove_graves();
+    let expected = vec![k_anns[3].1, k_anns[5].1, k_anns[9].1];
+
+    let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
+
+    assert_ne!(k_anns_intered, k_anns);
+
+    let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
+    let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+
+    let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
+    assert_eq!(diff, expected);
+
+
+  }
+
 
   #[test]
   fn greedy_search() {
