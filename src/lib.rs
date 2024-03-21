@@ -1,6 +1,15 @@
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
+/*
+
+cache戦略のアイデア
+  ICはSSDのような並列に読み出しできない環境では、空間的に近いノードを近くに配置しておくことが望ましい。
+  insertで、最近傍を探して、最も近い空いてる場所に入れるような方式をとるのはどうか。
+  10%多く見積もって、あらかじめ隙間を開けておく。適度に圧縮・拡張をする。
+
+*/
+
 
 pub struct Builder {
   a: f32,
@@ -70,6 +79,7 @@ pub struct FreshVamana<P>
   centroid: usize,
   builder: Builder,
   cemetery: Vec<usize>,
+  empties: Vec<usize>,
 }
 
 impl<P> FreshVamana<P>
@@ -129,6 +139,11 @@ where
     ann
   }
 
+  pub fn insert(&mut self, p: P) {
+    todo!();
+    let (list, visited) = self.greedy_search(&p, 1, self.builder.l);
+  }
+
   pub fn inter(&mut self, node_i: usize) {
     if !self.cemetery.contains(&node_i) {
       insert_id(node_i, &mut self.cemetery)
@@ -166,6 +181,9 @@ where
 
     }
 
+    // Mark node as empty
+    self.empties = union_ids(&self.empties, &self.cemetery);
+
     self.cemetery = Vec::new();
 
   }
@@ -178,6 +196,7 @@ where
           centroid: usize::MAX,
           builder,
           cemetery: Vec::new(),
+          empties: Vec::new(),
         }
     }
 
@@ -236,6 +255,7 @@ where
       centroid,
       builder,
       cemetery: Vec::new(),
+      empties: Vec::new(),
     }
 
   }
