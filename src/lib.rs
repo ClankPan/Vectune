@@ -64,7 +64,7 @@ struct Node<P> {
   id: usize,
 }
 
-struct FreshVamana<P>
+pub struct FreshVamana<P>
 {
   nodes: Vec<Node<P>>,
   centroid: usize,
@@ -108,7 +108,7 @@ where
         if ann.nodes[j].n_out.contains(&i) {
           continue;
         } else {
-          ann.nodes[j].n_out.push(i);
+          insert_id(i, &mut ann.nodes[j].n_out)
         }
 
         let j_point = &ann.nodes[j].p;
@@ -131,9 +131,26 @@ where
 
   pub fn inter(&mut self, node_i: usize) {
     if !self.cemetery.contains(&node_i) {
-      self.cemetery.push(node_i)
+      insert_id(node_i, &mut self.cemetery)
     }
   }
+
+  // pub fn remove_graves(&mut self) {
+  //   // 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
+  //   // Note: 𝐿𝐷 is Deleted List
+  //   let mut ps = Vec::new();
+  //   for grave_i in &self.cemetery {
+  //     ps.extend(self.nodes[*grave_i].n_in.clone())
+  //   }
+
+  //   fn intersection(a: Vec<usize>, b: Vec<usize>) -> Vec<usize> {
+
+  //   }
+
+  //   for p in ps {
+  //     let d = 
+  //   }
+  // }
 
   fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
 
@@ -186,13 +203,13 @@ where
           continue;
         }
 
-        self_node.n_out.push(out_i);
-        back_links.push(out_i);
+        insert_id(out_i, &mut self_node.n_out);
+        insert_id(out_i, &mut back_links);
       }
 
       for out_i in back_links {
         let out_node = &mut nodes[out_i];
-        out_node.n_in.push(self_i);
+        insert_id(self_i, &mut out_node.n_in)
       }
     }
 
@@ -228,7 +245,8 @@ where
       if is_contained_in(&nearest.1, &visited) {
         continue;
       } else {
-        visited.push(nearest)
+        // visited.push(nearest)
+        insert_dist(nearest, &mut visited)
       }
 
       // If the node is marked as grave, remove from result list. But Its neighboring nodes are explored.
@@ -246,7 +264,8 @@ where
         }
 
         let dist = xq.distance(&node.p);
-        list.push((dist, node_i));
+        // list.push((dist, node_i));
+        insert_dist((dist, node_i), &mut list)
       }
 
       if list.len() > l {
@@ -270,7 +289,8 @@ where
     for n_out in &node.n_out {
       if !is_contained_in(n_out, &v) {
         let dist = node.p.distance(&self.nodes[*n_out].p);
-        v.push((dist, *n_out))
+        // v.push((dist, *n_out))
+        insert_dist((dist, *n_out), &mut v)
       }
     }
     remove_from(&xp, &mut v);
@@ -287,8 +307,8 @@ where
     while let Some((first, rest)) = v.split_first() {
       let pa = first; // pa is p asterisk (p*), which is nearest point to p in this loop
       let pa_point = self.nodes[pa.1].p.clone();
-      self.nodes[xp].n_out.push(pa.1);
-      self.nodes[pa.1].n_in.push(xp); // back link
+      insert_id(pa.1, &mut self.nodes[xp].n_out);
+      insert_id(xp, &mut self.nodes[pa.1].n_in); // back link
 
       if self.nodes[xp].n_out.len() == self.builder.r {
         break;
@@ -332,6 +352,27 @@ fn remove_from(i: &usize, vec: &mut Vec<(f32, usize)>) {
   vec.retain(|&(_, x)| x!=*i);
 }
 
+fn insert_id(value: usize, vec: &mut Vec<usize>) {
+  match vec.binary_search(&value) {
+    Ok(_index) => {
+      return // If already exsits
+    },
+    Err(index) => {
+      vec.insert(index, value);
+    },
+  };
+}
+
+fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
+  match vec.binary_search_by(|probe| probe.0.partial_cmp(&value.0).unwrap_or(std::cmp::Ordering::Less)) {
+    Ok(_index) => {
+      return // If already exsits
+    },
+    Err(index) => {
+      vec.insert(index, value);
+    },
+  };
+}
 
 
 pub trait Point: Clone + Sync {
@@ -594,6 +635,24 @@ mod tests {
     let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
     remove_from(&3, &mut a);
     assert_eq!(a, vec![(0.2, 2), (0.1, 1), (0.0, 0)])
+
+  }
+
+  #[test]
+  fn test_insert_id() {
+    let mut a = vec![0, 1 , 3 , 4];
+    insert_id(2, &mut a);
+    insert_id(2, &mut a);
+    assert_eq!(a, vec![0, 1 , 2 , 3, 4])
+
+  }
+
+  #[test]
+  fn test_insert_dist() {
+    let mut a = vec![(0.0, 0), (0.1, 1), (0.3, 3)];
+    insert_dist((0.2, 2), &mut a);
+    insert_dist((0.2, 2), &mut a);
+    assert_eq!(a, vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)])
 
   }
 }
