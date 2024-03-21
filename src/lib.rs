@@ -135,22 +135,40 @@ where
     }
   }
 
-  // pub fn remove_graves(&mut self) {
-  //   // 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
-  //   // Note: 𝐿𝐷 is Deleted List
-  //   let mut ps = Vec::new();
-  //   for grave_i in &self.cemetery {
-  //     ps.extend(self.nodes[*grave_i].n_in.clone())
-  //   }
+  pub fn remove_graves(&mut self) {
+    // 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
+    // Note: 𝐿𝐷 is Deleted List
+    let mut ps = Vec::new();
+    for grave_i in &self.cemetery {
+      ps.extend(self.nodes[*grave_i].n_in.clone())
+    }
 
-  //   fn intersection(a: Vec<usize>, b: Vec<usize>) -> Vec<usize> {
+    for p in ps {
+      // D ← 𝑁out(𝑝) ∩ 𝐿𝐷
+      let d = intersect_ids(&self.nodes[p].n_out, &self.cemetery);
+      // C ← 𝑁out(𝑝) \ D //initialize candidate list
+      let mut c = diff_ids(&self.nodes[p].n_out, &d);
 
-  //   }
+      // foreach 𝑣 ∈ D do
+      for u in &d {
+        // C ← C ∪ 𝑁out(𝑣)
+        c = union_ids(&c, &self.nodes[*u].n_out);
+      }
 
-  //   for p in ps {
-  //     let d = 
-  //   }
-  // }
+      // C ← C \ D
+      c = diff_ids(&c, &d);
+
+      // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
+      let p_point = self.nodes[p].p.clone();
+      let mut c_with_dist: Vec<(f32, usize)> = c.into_iter().map(|id| (p_point.distance(&self.nodes[id].p), id)).collect();
+      sort_list_by_dist(&mut c_with_dist);
+      self.robust_prune(p, c_with_dist);
+
+    }
+
+    self.cemetery = Vec::new();
+    
+  }
 
   fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
 
@@ -330,6 +348,34 @@ fn set_diff(a: Vec<(f32, usize)>, b: &Vec<(f32, usize)>) -> Vec<(f32, usize)> {
   a.into_iter().filter(|(_, p)| !is_contained_in(p, b)).collect()
 }
 
+fn diff_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+  let mut result = Vec::new();
+  let mut a_idx = 0;
+  let mut b_idx = 0;
+
+  while a_idx < a.len() && b_idx < b.len() {
+    if a[a_idx] == b[b_idx] {
+      a_idx += 1; // Skip common elements
+      b_idx += 1;
+    } else if a[a_idx] < b[b_idx] {
+      // Elements present only in a
+      result.push(a[a_idx]);
+      a_idx += 1;
+    } else {
+      // Ignore elements that exist only in b
+      b_idx += 1;
+    }
+  }
+
+  // Add the remaining elements of a (since they do not exist in b)
+  while a_idx < a.len() {
+    result.push(a[a_idx]);
+    a_idx += 1;
+  }
+
+  result
+}
+
 fn sort_list_by_dist(list: &mut Vec<(f32, usize)>) {
   list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
 }
@@ -372,6 +418,58 @@ fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
       vec.insert(index, value);
     },
   };
+}
+
+fn intersect_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+  let mut result = Vec::new();
+  let mut a_idx = 0;
+  let mut b_idx = 0;
+
+  while a_idx < a.len() && b_idx < b.len() {
+    if a[a_idx] == b[b_idx] {
+      result.push(a[a_idx]);
+      a_idx += 1;
+      b_idx += 1;
+    } else if a[a_idx] < b[b_idx] {
+      a_idx += 1;
+    } else {
+      b_idx += 1;
+    }
+  }
+
+  result
+}
+
+fn union_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+  let mut result = Vec::new();
+  let mut a_idx = 0;
+  let mut b_idx = 0;
+
+  while a_idx < a.len() && b_idx < b.len() {
+    if a[a_idx] == b[b_idx] {
+      result.push(a[a_idx]);
+      a_idx += 1;
+      b_idx += 1;
+    } else if a[a_idx] < b[b_idx] {
+      result.push(a[a_idx]);
+      a_idx += 1;
+    } else {
+      result.push(b[b_idx]);
+      b_idx += 1;
+    }
+  }
+
+  // Add the remaining elements of a or b
+  while a_idx < a.len() {
+    result.push(a[a_idx]);
+    a_idx += 1;
+  }
+  while b_idx < b.len() {
+    result.push(b[b_idx]);
+    b_idx += 1;
+  }
+
+  result
 }
 
 
@@ -654,5 +752,60 @@ mod tests {
     insert_dist((0.2, 2), &mut a);
     assert_eq!(a, vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)])
 
+  }
+
+  #[test]
+  fn test_intersect_ids() {
+    let a = vec![0, 1 , 3 , 4];
+    let c = intersect_ids(&a,&a);
+    assert_eq!(c, a);
+
+    let b = vec![0, 4];
+    let c = intersect_ids(&a, &b);
+    assert_eq!(c, b);
+
+    let b = vec![0, 2, 4];
+    let c = intersect_ids(&a, &b);
+    assert_eq!(c, vec![0, 4]);
+  }
+
+  #[test]
+  fn test_diff_ids() {
+    let a = vec![0, 1 , 3 , 4];
+    let b = vec![0, 4];
+    let c = diff_ids(&a, &b);
+    assert_eq!(c, vec![1, 3]);
+
+    let b = vec![0, 4, 5];
+    let c = diff_ids(&a, &b);
+    assert_eq!(c, vec![1, 3]);
+
+    let b = vec![0, 1 , 3 , 4];
+    let c = diff_ids(&a, &b);
+    assert_eq!(c, vec![]);
+
+    let b = vec![];
+    let c = diff_ids(&a, &b);
+    assert_eq!(c, a);
+  }
+
+  #[test]
+  fn test_union_ids() {
+    let a = vec![0, 1 , 3 , 4];
+    let b = vec![0, 4];
+    let c = union_ids(&a, &b);
+    assert_eq!(c, a);
+
+    let b = vec![0, 4, 5];
+    let c = union_ids(&a, &b);
+    assert_eq!(c, vec![0, 1 , 3 , 4, 5]);
+
+    // let b = vec![0, 1 , 3 , 4];
+    // let c = diff_ids(&a,&b);
+    // assert_eq!(c, vec![]);
+
+    // let b = vec![];
+    // let c = diff_ids(&a,&b);
+    // assert_eq!(c, a);
   }
 }
