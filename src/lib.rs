@@ -69,6 +69,7 @@ struct FreshVamana<P>
   nodes: Vec<Node<P>>,
   centroid: usize,
   builder: Builder,
+  cemetery: Vec<usize>,
 }
 
 impl<P> FreshVamana<P>
@@ -128,6 +129,12 @@ where
     ann
   }
 
+  pub fn inter(&mut self, node_i: usize) {
+    if !self.cemetery.contains(&node_i) {
+      self.cemetery.push(node_i)
+    }
+  }
+
   fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
 
     if points.is_empty() {
@@ -135,6 +142,7 @@ where
           nodes: Vec::new(),
           centroid: usize::MAX,
           builder,
+          cemetery: Vec::new(),
         }
     }
 
@@ -192,6 +200,7 @@ where
       nodes,
       centroid,
       builder,
+      cemetery: Vec::new(),
     }
 
   }
@@ -207,7 +216,13 @@ where
 
       // println!("list: {:?}, visited: {:?} \n\n\n", list, visited);
 
+      /*
+      Note:
+      listはl個であるこをは保証したい。
+      graveのNoutは使いたいから、
+      */
 
+      // let p∗ ← arg minp∈L\V ||xp − xq||
       let nearest = find_nearest(&mut working);
 
       if is_contained_in(&nearest.1, &visited) {
@@ -216,11 +231,17 @@ where
         visited.push(nearest)
       }
 
+      // If the node is marked as grave, remove from result list. But Its neighboring nodes are explored.
+      if self.cemetery.contains(&nearest.1) {
+        remove_from(&nearest.1, &mut list);
+      }
+      
+      // update L ← L ∪ Nout(p∗) andV ← V ∪ {p∗}
       for out_i in &self.nodes[nearest.1].n_out {
         let node = &self.nodes[*out_i];
         let node_i = node.id;
 
-        if is_contained_in(&node_i, &list) {
+        if is_contained_in(&node_i, &list) || is_contained_in(&node_i, &visited) { // Should check visited as grave point is in visited but not in list.
           continue;
         }
 
@@ -252,7 +273,7 @@ where
         v.push((dist, *n_out))
       }
     }
-    retain_from(&xp, &mut v);
+    remove_from(&xp, &mut v);
 
     // Delete all back links of each n_out
     let n_out = &self.nodes[xp].n_out.clone();
@@ -307,7 +328,7 @@ fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
   vec.iter().filter(|(_, id)| *id == *i).collect::<Vec<&(f32, usize)>>().len() != 0
 }
 
-fn retain_from(i: &usize, vec: &mut Vec<(f32, usize)>) {
+fn remove_from(i: &usize, vec: &mut Vec<(f32, usize)>) {
   vec.retain(|&(_, x)| x!=*i);
 }
 
@@ -424,6 +445,42 @@ mod tests {
     }
   }
 
+
+  #[test]
+  fn test_greedy_search_with_cemetery() {
+
+    let mut builder = Builder::default();
+    builder.set_l(30);
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
+    let l = builder.l;
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a;3])
+    }).collect();
+
+    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+
+    let xq = Point(vec![0;3]);
+    let k = 10;
+    let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+
+    // for i in 0..10 {
+    //   assert_eq!(k_anns[i].1, i);
+    // }
+
+    ann.inter(k_anns[3].1); // mark as grave
+
+    let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
+
+    assert_ne!(k_anns_intered, k_anns);
+
+
+  }
+
   #[test]
   fn greedy_search() {
 
@@ -533,10 +590,10 @@ mod tests {
   }
 
   #[test]
-  fn test_retain_from() {
+  fn test_remove_from() {
     let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
-    retain_from(&0, &mut a);
-    assert_eq!(a, vec![(0.2, 2), (0.1, 1), (0.3, 3)])
+    remove_from(&3, &mut a);
+    assert_eq!(a, vec![(0.2, 2), (0.1, 1), (0.0, 0)])
 
   }
 }
