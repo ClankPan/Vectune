@@ -73,6 +73,17 @@ struct Node<P> {
   id: usize,
 }
 
+impl<P> Node<P> {
+  fn new(p: P, id: usize) -> Self {
+    Self {
+      n_out: Vec::new(),
+      n_in: Vec::new(),
+      p,
+      id,
+    }
+  }
+}
+
 pub struct FreshVamana<P>
 {
   nodes: Vec<Node<P>>,
@@ -140,14 +151,48 @@ where
   }
 
   pub fn insert(&mut self, p: P) {
-    todo!();
-    let (list, visited) = self.greedy_search(&p, 1, self.builder.l);
+    // Add node
+    let pid =  if self.empties.len() == 0 { // ToDo: cache
+      let id = self.nodes.len();
+      self.nodes.push(Node::new(p.clone(), id));
+      id
+    } else {
+      let id = self.empties[0];
+      self.empties.remove(0);
+      self.nodes[id] = Node::new(p.clone(), id);
+      id
+    };
+
+    // [L, V] ← GreedySearch(𝑠, 𝑝, 1, 𝐿)
+    let (_list, visited) = self.greedy_search(&p, 1, self.builder.l);
+    // 𝑁out(𝑝) ← RobustPrune(𝑝, V, 𝛼, 𝑅) (Algorithm 3)
+    self.robust_prune(pid, visited);
+    // foreach 𝑗 ∈ 𝑁out(𝑝) do
+    for j in self.nodes[pid].n_out.clone() {
+      // |𝑁out(𝑗) ∪ {𝑝}| 
+      insert_id(pid, &mut self.nodes[j].n_out);
+      // if |𝑁out(𝑗) ∪ {𝑝}| > 𝑅 then 
+      let j_n_out = self.nodes[j].n_out.clone();
+      let j_point = self.nodes[j].p.clone();
+      if j_n_out.len() > self.builder.r {
+        // 𝑁out(𝑗) ← RobustPrune(𝑗, 𝑁out(𝑗) ∪ {𝑝}, 𝛼, 𝑅)
+        let mut j_n_out_with_dist = j_n_out.into_iter().map(|id| (j_point.distance(&self.nodes[id].p), id)).collect::<Vec<(f32, usize)>>();
+        sort_list_by_dist(&mut j_n_out_with_dist);
+        self.robust_prune(j, j_n_out_with_dist);
+      }
+    }
+
   }
 
   pub fn inter(&mut self, node_i: usize) {
     if !self.cemetery.contains(&node_i) {
       insert_id(node_i, &mut self.cemetery)
     }
+  }
+
+  fn make_edge(out_i: usize, in_i: usize) { // out_i -> in_i
+    // todo make sure adding backlinks
+    todo!();
   }
 
   pub fn remove_graves(&mut self) {
