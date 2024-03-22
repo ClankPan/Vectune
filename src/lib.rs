@@ -111,12 +111,12 @@ where
     let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
     shuffled.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let mut loop_count = 0;
-    let total = shuffled.len();
+    // let mut loop_count = 0;
+    // let total = shuffled.len();
     // for 1 ≤ i ≤ n do
     for (_, i) in shuffled {
-      println!("loop: {}/{}", loop_count, total);
-      loop_count += 1;
+      // println!("loop: {}/{}", loop_count, total);
+      // loop_count += 1;
 
 
       // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
@@ -202,6 +202,8 @@ where
     for grave_i in &self.cemetery {
       ps.extend(self.nodes[*grave_i].n_in.clone())
     }
+
+    println!("self.cemetery {:?} ", self.cemetery);
 
     for p in ps {
       // D ← 𝑁out(𝑝) ∩ 𝐿𝐷
@@ -714,7 +716,7 @@ mod tests {
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
     // mark as grave
-    ann.inter(k_anns[3].1);
+    ann.inter(k_anns[2].1);
     ann.inter(k_anns[5].1);
     ann.inter(k_anns[9].1);
     ann.remove_graves();
@@ -727,7 +729,9 @@ mod tests {
     let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
     let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
 
-    let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
+    println!("{:?}\n\n{:?}", k_anns_ids, k_anns_intered_ids);
+
+    let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
     assert_eq!(diff, expected);
 
 
