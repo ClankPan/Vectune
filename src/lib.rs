@@ -199,6 +199,13 @@ where
 
   pub fn remove_graves(&mut self) {
 
+    /*
+    Debug Note:
+       ☑︎ The erased node is not erased from all n_in.
+       - During random initialization, a<-b, a->b loop reference is happening.
+       - A node has been created that is not referenced by anyone.
+    */
+
     // for node in &self.nodes {
     //   // println!("id {},\n out: {:?},\n in: {:?}", node.id, node.n_out, node.n_in);
     // }
@@ -210,10 +217,11 @@ where
     // Note: 𝐿𝐷 is Deleted List
     let mut ps = Vec::new();
     // s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
-    for grave_i in &self.cemetery {
+    for grave_i in self.cemetery.clone() {
       // println!("grave id {}, out: {:?}", grave_i, self.nodes[*grave_i].n_in);
-      // ps.extend(self.nodes[*grave_i].n_in.clone())
-      ps = union_ids(&ps, &self.nodes[*grave_i].n_in);
+      ps = union_ids(&ps, &self.nodes[grave_i].n_in);
+      self.clean_n_out_edge(grave_i); // Backlinks are not defined in the original algorithm and should be deleted here.
+      println!("{}: grave_n_in: {:?}, ps: {:?}" , grave_i, self.nodes[grave_i].n_in, ps);
     }
     // 𝑝 ∈ 𝑃 \ 𝐿𝐷
     ps = diff_ids(&ps, &self.cemetery);
@@ -259,7 +267,7 @@ where
         It may ontain deleted points.
         The original paper does not explicitly state in Algorithm 4.
       */
-      self.clean_n_out(p);
+      self.clean_n_out_edge(p);
       self.robust_prune(p, c_with_dist);
 
       println!("n_out {:?}", self.nodes[p].n_out);
@@ -423,7 +431,7 @@ where
     //   self.nodes[*out_i].n_in.retain(|&x| x!=xp);
     // }
     // self.nodes[xp].n_out = vec![];
-    self.clean_n_out(xp);
+    self.clean_n_out_edge(xp);
 
     // println!("v : {:?}", v);
 
@@ -450,11 +458,12 @@ where
 
   }
 
-  fn clean_n_out(&mut self, id: usize) {
+  fn clean_n_out_edge(&mut self, id: usize) {
     // Delete all back links of each n_out
     let n_out = &self.nodes[id].n_out.clone();
     for out_i in n_out {
-      self.nodes[*out_i].n_in.retain(|&x| x!=id);
+      // self.nodes[*out_i].n_in.retain(|&x| x!=id);
+      delete_id(id, &mut self.nodes[*out_i].n_in);
     }
     self.nodes[id].n_out = vec![];
   }
@@ -522,6 +531,17 @@ fn insert_id(value: usize, vec: &mut Vec<usize>) {
     },
     Err(index) => {
       vec.insert(index, value);
+    },
+  };
+}
+
+fn delete_id(value: usize, vec: &mut Vec<usize>) {
+  match vec.binary_search(&value) {
+    Ok(index) => {
+      vec.remove(index);
+    },
+    Err(_index) => {
+      return
     },
   };
 }
@@ -764,7 +784,7 @@ mod tests {
     let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
 
     for node in &ann.nodes {
-      println!("{}, {:?}", node.id, node.n_out);
+      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
     }
     println!();
 
@@ -780,16 +800,18 @@ mod tests {
     let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
 
     let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
-    println!("{:?}\n\n{:?}", k_anns_intered, _visited);
+    // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
 
     for node in &ann.nodes {
-      println!("{}, {:?}", node.id, node.n_out);
+      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
     }
 
     assert_ne!(k_anns_intered, k_anns);
 
     let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
     let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+
+    println!("{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
     
     let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
     assert_eq!(diff, expected);
