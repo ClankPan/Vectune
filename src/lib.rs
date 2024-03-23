@@ -33,7 +33,9 @@ impl Default for Builder {
 
 
 impl Builder {
-
+  pub fn set_r(&mut self, r: usize) {
+    self.r = r;
+  }
   pub fn set_l(&mut self, l: usize) {
     self.l = l;
   }
@@ -196,20 +198,34 @@ where
   }
 
   pub fn remove_graves(&mut self) {
-    // 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
+
+    // for node in &self.nodes {
+    //   // println!("id {},\n out: {:?},\n in: {:?}", node.id, node.n_out, node.n_in);
+    // }
+    // println!("");
+
+
+    /* 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅ */
+
     // Note: 𝐿𝐷 is Deleted List
     let mut ps = Vec::new();
+    // s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
     for grave_i in &self.cemetery {
-      ps.extend(self.nodes[*grave_i].n_in.clone())
+      // println!("grave id {}, out: {:?}", grave_i, self.nodes[*grave_i].n_in);
+      // ps.extend(self.nodes[*grave_i].n_in.clone())
+      ps = union_ids(&ps, &self.nodes[*grave_i].n_in);
     }
+    // 𝑝 ∈ 𝑃 \ 𝐿𝐷
+    ps = diff_ids(&ps, &self.cemetery);
 
-    println!("self.cemetery {:?} ", self.cemetery);
+    // println!("self.cemetery {:?} ", self.cemetery);
 
     for p in ps {
       // D ← 𝑁out(𝑝) ∩ 𝐿𝐷
       let d = intersect_ids(&self.nodes[p].n_out, &self.cemetery);
       // C ← 𝑁out(𝑝) \ D //initialize candidate list
       let mut c = diff_ids(&self.nodes[p].n_out, &d);
+      // println!("id: {}, D {:?} , C: {:?}", p, d, c);
 
       // foreach 𝑣 ∈ D do
       for u in &d {
@@ -217,15 +233,36 @@ where
         c = union_ids(&c, &self.nodes[*u].n_out);
       }
 
+      // println!("id: {}, D {:?} , C: {:?}", p, d, c);
+
       // C ← C \ D
-      c = diff_ids(&c, &d);
+      /*
+       Note:
+        Since D's Nout may contain LD, Why pull the D instead of the LD?
+        I implemented it as shown and it hit data that should have been erased, so I'll fix it to pull LD.
+        `c = diff_ids(&c, &d); // <- ???`
+      */
+      c = diff_ids(&c, &self.cemetery);
+
+      println!("id: {}, c {:?}", p, c);
 
       // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
       let p_point = self.nodes[p].p.clone();
       let mut c_with_dist: Vec<(f32, usize)> = c.into_iter().map(|id| (p_point.distance(&self.nodes[id].p), id)).collect();
+
+      // println!("id: {}, c {:?}", p, c_with_dist);
+
       sort_list_by_dist(&mut c_with_dist);
+      /* 
+      Note: 
+        Before call robust_prune, clean Nout(p) because robust_prune takes union v and Nout(p) inside.
+        It may ontain deleted points.
+        The original paper does not explicitly state in Algorithm 4.
+      */
+      self.clean_n_out(p);
       self.robust_prune(p, c_with_dist);
 
+      println!("n_out {:?}", self.nodes[p].n_out);
     }
 
     // Mark node as empty
@@ -381,13 +418,17 @@ where
     remove_from(&xp, &mut v);
 
     // Delete all back links of each n_out
-    let n_out = &self.nodes[xp].n_out.clone();
-    for out_i in n_out {
-      self.nodes[*out_i].n_in.retain(|&x| x!=xp);
-    }
-    self.nodes[xp].n_out = vec![];
+    // let n_out = &self.nodes[xp].n_out.clone();
+    // for out_i in n_out {
+    //   self.nodes[*out_i].n_in.retain(|&x| x!=xp);
+    // }
+    // self.nodes[xp].n_out = vec![];
+    self.clean_n_out(xp);
+
+    // println!("v : {:?}", v);
 
     sort_list_by_dist(&mut v); // sort by d(p, p')
+
 
     while let Some((first, rest)) = v.split_first() {
       let pa = first; // pa is p asterisk (p*), which is nearest point to p in this loop
@@ -407,6 +448,15 @@ where
       });
     }
 
+  }
+
+  fn clean_n_out(&mut self, id: usize) {
+    // Delete all back links of each n_out
+    let n_out = &self.nodes[id].n_out.clone();
+    for out_i in n_out {
+      self.nodes[*out_i].n_in.retain(|&x| x!=id);
+    }
+    self.nodes[id].n_out = vec![];
   }
 }
 
@@ -698,7 +748,8 @@ mod tests {
 
     let mut builder = Builder::default();
     builder.set_l(30);
-    let mut rng = SmallRng::seed_from_u64(builder.seed);
+    builder.set_r(30);
+    // let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
 
     let mut i = 0;
@@ -709,7 +760,13 @@ mod tests {
       Point(vec![a;3])
     }).collect();
 
-    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+    // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+    let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
+
+    for node in &ann.nodes {
+      println!("{}, {:?}", node.id, node.n_out);
+    }
+    println!();
 
     let xq = Point(vec![0;3]);
     let k = 30;
@@ -720,17 +777,20 @@ mod tests {
     ann.inter(k_anns[5].1);
     ann.inter(k_anns[9].1);
     ann.remove_graves();
-    let expected = vec![k_anns[3].1, k_anns[5].1, k_anns[9].1];
+    let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
 
     let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
+    println!("{:?}\n\n{:?}", k_anns_intered, _visited);
+
+    for node in &ann.nodes {
+      println!("{}, {:?}", node.id, node.n_out);
+    }
 
     assert_ne!(k_anns_intered, k_anns);
 
     let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
     let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
-
-    println!("{:?}\n\n{:?}", k_anns_ids, k_anns_intered_ids);
-
+    
     let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
     assert_eq!(diff, expected);
 
