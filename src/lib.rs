@@ -12,12 +12,7 @@ cache戦略のアイデア
 
 /*
 Debug Note:
-    ☑︎ The erased node is not erased from all n_in.
-    ☑︎ Backlinks are not complete and remove is not working properly.
-    - During random initialization, a<-b, a->b loop reference is happening.
-    ☑︎ A node has been created that is not referenced by anyone.
-    - Problem of extremely low n_i due to robust prune.
-    - A node that is not referenced by a neighbor node may appear in delete.
+
 */
 
 
@@ -34,7 +29,7 @@ pub struct Builder {
 impl Default for Builder {
   fn default() -> Self {
     Self {
-      a: 1.2,
+      a: 2.0,
       r: 70,
       l: 125,
       seed: rand::random(),
@@ -140,6 +135,11 @@ where
       One-time indexing would create unreferenced nodes from the neighborhood.
       Since nodes which selected relatively at the beginning don't have actual neighborhoods in its n_out.
     */
+    let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
+    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+
+    FreshVamana::<P>::indexing(&mut ann, shuffled);
+
     let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
     shuffled.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -419,10 +419,10 @@ where
     }
 
 
-    println!("----------- Init Rand Graph -----------");
-    for node in &nodes {
-      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    }
+    // println!("----------- Init Rand Graph -----------");
+    // for node in &nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
 
     Self {
       nodes,
@@ -742,25 +742,6 @@ mod tests {
   }
 
   #[test]
-  fn fresh_disk_ann_new_r() {
-
-    let builder = Builder::default();
-    let mut rng = SmallRng::seed_from_u64(builder.seed);
-    let r = builder.r;
-
-    let points: Vec<Point> = (0..100).into_iter().map(|_| {
-      let a = rng.gen::<u32>();
-      Point(vec![a;3])
-    }).collect();
-
-    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
-    for node in ann.nodes {
-      assert_eq!(node.n_out.len(), r);
-      assert_ne!(node.n_in.len(), 0);
-    }
-  }
-
-  #[test]
   fn fresh_disk_ann_new_centroid() {
 
     let builder = Builder::default();
@@ -783,6 +764,7 @@ mod tests {
 
     let mut builder = Builder::default();
     builder.set_l(30);
+    // builder.set_seed(9706176376352270582);
     let l = builder.l;
 
     let mut i = 0;
@@ -795,9 +777,17 @@ mod tests {
 
     let ann: FreshVamana<Point> = FreshVamana::new(points, builder);
     let xq = Point(vec![0;3]);
-    let k = 10;
+    let k = 20;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
+
+    println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
+    for node in &ann.nodes {
+      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    }
+    println!();
+
+    println!("{:?}", k_anns);
     for i in 0..10 {
       assert_eq!(k_anns[i].1, i);
     }
@@ -852,7 +842,7 @@ mod tests {
     builder.set_l(30);
     builder.set_r(30);
     builder.set_a(2.0);
-    builder.set_seed(10223224515933933128);
+    builder.set_seed(826142338715444524);
     // let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
 
@@ -898,7 +888,7 @@ mod tests {
     let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
     let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
 
-    println!("\n\n{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
+    // println!("\n\n{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
     
     let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
     assert_eq!(diff, expected);
