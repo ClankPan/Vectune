@@ -111,7 +111,10 @@ where
     // let σ denote a random permutation of 1..n
     let node_len = ann.nodes.len();
     let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
-    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+    
+    // WIP! disabled for test
+    // shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+
 
     // let mut loop_count = 0;
     // let total = shuffled.len();
@@ -120,18 +123,22 @@ where
       // println!("loop: {}/{}", loop_count, total);
       // loop_count += 1;
 
-
+      println!("id: {}", i);
       // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
       let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
+      // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
       // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
       ann.robust_prune(i, visited);
+      // println!("n_out: {:?}", &ann.nodes[i].n_out);
 
       // for all points j in Nout(σ(i)) do
       for j in ann.nodes[i].n_out.clone() {
         if ann.nodes[j].n_out.contains(&i) {
           continue;
         } else {
-          insert_id(i, &mut ann.nodes[j].n_out)
+          // Todo : refactor, self.make_edge
+          insert_id(i, &mut ann.nodes[j].n_out);
+          insert_id(j, &mut ann.nodes[i].n_in);
         }
 
         let j_point = &ann.nodes[j].p;
@@ -202,6 +209,7 @@ where
     /*
     Debug Note:
        ☑︎ The erased node is not erased from all n_in.
+       - Backlinks are not complete and remove is not working properly.
        - During random initialization, a<-b, a->b loop reference is happening.
        - A node has been created that is not referenced by anyone.
     */
@@ -295,7 +303,7 @@ where
     assert!(points.len() < u32::MAX as usize);
     let points_len = points.len();
 
-    // Find Centroid
+    /* Find Centroid */
     let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
     for p in &points {
       average_point = p.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
@@ -312,34 +320,51 @@ where
     }
 
 
-    // Get random connected graph
+    /* Get random connected graph */
     let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, p)| Node {
       n_out: Vec::new(),
       n_in: Vec::new(),
       p,
       id
     }).collect();
+    
+    let mut working: Vec<usize> = (0..nodes.len()).collect();
+    let node_len = nodes.len();
 
-    for self_i in 0..points_len {
-      let self_node = &mut nodes[self_i];
-      // Add random out nodes
-      let mut back_links = Vec::new();
-      while self_node.n_out.len() < builder.r {
-        let out_i = rng.gen_range(0..points_len as usize);
+    for node_i in 0..node_len {
+      // let mut outs: Vec<usize> = Vec::new();
+      // while outs.len() < builder.r {
+      //   let rand_node_i = rng.gen_range(0..working.len() as usize);
+      //   if rand_node_i == node_i {
+      //     continue;
+      //   }
+      //   outs = union_ids(&outs, &vec![rand_node_i]);
+      // }
 
-        // To not contain self-reference and duplication
-        if out_i == self_i || self_node.n_out.contains(&out_i) {
+      let mut n_out_cout = 0;
+      while n_out_cout < builder.r {
+        let working_i = rng.gen_range(0..working.len() as usize);
+        if working_i == node_i {
           continue;
+        } else {
+          n_out_cout += 1;
         }
+        let out_node_i = working[working_i];
+        insert_id(node_i, &mut nodes[out_node_i].n_in); // ToDo: refactor , use self.make_edge()
+        insert_id(out_node_i, &mut nodes[node_i].n_out);
 
-        insert_id(out_i, &mut self_node.n_out);
-        insert_id(out_i, &mut back_links);
+        // Since prevents the creation of nodes that are not referenced by anyone during initialization,
+        // ensure that all input edges are R nodes
+        if nodes[out_node_i].n_in.len() == builder.r {
+          working.remove(working_i);
+        }
       }
+    }
 
-      for out_i in back_links {
-        let out_node = &mut nodes[out_i];
-        insert_id(self_i, &mut out_node.n_in)
-      }
+
+    println!("----------- Init Rand Graph -----------");
+    for node in &nodes {
+      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
     }
 
     Self {
@@ -774,7 +799,7 @@ mod tests {
 
     let mut i = 0;
 
-    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+    let points: Vec<Point> = (0..500).into_iter().map(|_| {
       let a = i;
       i += 1;
       Point(vec![a;3])
@@ -783,6 +808,8 @@ mod tests {
     // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
     let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
 
+
+    println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
     for node in &ann.nodes {
       println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
     }
@@ -802,6 +829,7 @@ mod tests {
     let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
     // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
 
+    println!("\n------- ann.remove_graves(); --------\n");
     for node in &ann.nodes {
       println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
     }
@@ -811,7 +839,7 @@ mod tests {
     let k_anns_ids: Vec<usize>          = k_anns.into_iter().map(|(_, id)| id).collect();
     let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
 
-    println!("{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
+    println!("\n\n{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
     
     let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
     assert_eq!(diff, expected);
