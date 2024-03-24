@@ -10,6 +10,17 @@ cache戦略のアイデア
 
 */
 
+/*
+Debug Note:
+    ☑︎ The erased node is not erased from all n_in.
+    ☑︎ Backlinks are not complete and remove is not working properly.
+    - During random initialization, a<-b, a->b loop reference is happening.
+    ☑︎ A node has been created that is not referenced by anyone.
+    - Problem of extremely low n_i due to robust prune.
+    - A node that is not referenced by a neighbor node may appear in delete.
+*/
+
+
 
 pub struct Builder {
   a: f32,
@@ -33,11 +44,17 @@ impl Default for Builder {
 
 
 impl Builder {
+  pub fn set_a(&mut self, a: f32) {
+    self.a = a;
+  }
   pub fn set_r(&mut self, r: usize) {
     self.r = r;
   }
   pub fn set_l(&mut self, l: usize) {
     self.l = l;
+  }
+  pub fn set_seed(&mut self, seed: u64) {
+    self.seed = seed;
   }
 
   pub fn build<P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshVamanaMap<P, V>{
@@ -101,6 +118,7 @@ where
 {
   pub fn new(points: Vec<P>, builder: Builder) -> Self {
     let mut rng = SmallRng::seed_from_u64(builder.seed);
+    println!("seed: {}", builder.seed);
 
     // Initialize Random Graph
     let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng);
@@ -111,19 +129,66 @@ where
     // let σ denote a random permutation of 1..n
     let node_len = ann.nodes.len();
     let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
-    
-    // WIP! disabled for test
-    // shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+
+    FreshVamana::<P>::indexing(&mut ann, shuffled);
 
 
-    // let mut loop_count = 0;
-    // let total = shuffled.len();
+    /*
+    Note:
+      It is important to index twice from a randomly initialized graph.
+      One-time indexing would create unreferenced nodes from the neighborhood.
+      Since nodes which selected relatively at the beginning don't have actual neighborhoods in its n_out.
+    */
+    let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
+    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+
+    FreshVamana::<P>::indexing(&mut ann, shuffled);
+
+
+    // // for 1 ≤ i ≤ n do
+    // for (_, i) in shuffled {
+
+    //   // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
+    //   let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
+    //   // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
+    //   // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
+    //   ann.robust_prune(i, visited);
+    //   // println!("n_out: {:?}", &ann.nodes[i].n_out);
+
+    //   // for all points j in Nout(σ(i)) do
+    //   for j in ann.nodes[i].n_out.clone() {
+    //     if ann.nodes[j].n_out.contains(&i) {
+    //       continue;
+    //     } else {
+    //       // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
+    //       insert_id(i, &mut ann.nodes[j].n_out);
+    //       insert_id(j, &mut ann.nodes[i].n_in);
+    //     }
+
+    //     let j_point = &ann.nodes[j].p;
+
+    //     // if |Nout(j) ∪ {σ(i)}| > R then run RobustPrune(j, Nout(j) ∪ {σ(i)}, α, R) to update out-neighbors of j
+    //     if ann.nodes[j].n_out.len() > ann.builder.r {
+    //       // robust_prune requires (dist(xp, p'), index)
+    //       let v: Vec<(f32, usize)> = ann.nodes[j].n_out.clone().into_iter()
+    //         .map(|out_i: usize| 
+    //           (ann.nodes[out_i].p.distance(j_point), out_i)
+    //         ).collect();
+
+    //       ann.robust_prune(j, v);
+    //     }
+    //   }
+    // }
+
+    ann
+  }
+
+  fn indexing( ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
+
     // for 1 ≤ i ≤ n do
     for (_, i) in shuffled {
-      // println!("loop: {}/{}", loop_count, total);
-      // loop_count += 1;
 
-      println!("id: {}", i);
       // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
       let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
       // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
@@ -136,7 +201,7 @@ where
         if ann.nodes[j].n_out.contains(&i) {
           continue;
         } else {
-          // Todo : refactor, self.make_edge
+          // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
           insert_id(i, &mut ann.nodes[j].n_out);
           insert_id(j, &mut ann.nodes[i].n_in);
         }
@@ -155,8 +220,6 @@ where
         }
       }
     }
-
-    ann
   }
 
   pub fn insert(&mut self, p: P) {
@@ -205,15 +268,6 @@ where
   }
 
   pub fn remove_graves(&mut self) {
-
-    /*
-    Debug Note:
-       ☑︎ The erased node is not erased from all n_in.
-       - Backlinks are not complete and remove is not working properly.
-       - During random initialization, a<-b, a->b loop reference is happening.
-       - A node has been created that is not referenced by anyone.
-    */
-
     // for node in &self.nodes {
     //   // println!("id {},\n out: {:?},\n in: {:?}", node.id, node.n_out, node.n_in);
     // }
@@ -794,6 +848,8 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     builder.set_r(30);
+    builder.set_a(2.0);
+    builder.set_seed(10223224515933933128);
     // let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
 
@@ -823,8 +879,8 @@ mod tests {
     ann.inter(k_anns[2].1);
     ann.inter(k_anns[5].1);
     ann.inter(k_anns[9].1);
-    ann.remove_graves();
     let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
+    ann.remove_graves();
 
     let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
     // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
