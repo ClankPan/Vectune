@@ -282,7 +282,6 @@ where
     for grave_i in self.cemetery.clone() {
       // println!("grave id {}, out: {:?}", grave_i, self.nodes[*grave_i].n_in);
       ps = union_ids(&ps, &self.nodes[grave_i].n_in);
-      self.clean_n_out_edge(grave_i); // Backlinks are not defined in the original algorithm and should be deleted here.
       println!("{}: grave_n_in: {:?}, ps: {:?}" , grave_i, self.nodes[grave_i].n_in, ps);
     }
     // 𝑝 ∈ 𝑃 \ 𝐿𝐷
@@ -314,7 +313,7 @@ where
       */
       c = diff_ids(&c, &self.cemetery);
 
-      println!("id: {}, c {:?}", p, c);
+      println!("id: {}, c {:?}, u: {:?}", p, c, d.iter().map(|u| self.nodes[*u].n_out.clone()).collect::<Vec<Vec<usize>>>());
 
       // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
       let p_point = self.nodes[p].p.clone();
@@ -333,6 +332,10 @@ where
       self.robust_prune(p, c_with_dist);
 
       println!("n_out {:?}", self.nodes[p].n_out);
+    }
+
+    for grave_i in self.cemetery.clone() {
+      self.clean_n_out_edge(grave_i); // Backlinks are not defined in the original algorithm and should be deleted here.
     }
 
     // Mark node as empty
