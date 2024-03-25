@@ -12,9 +12,14 @@ cache戦略のアイデア
 
 /*
 Debug Note:
-
+  - After indexing three times, the graph is quite healthy. Figure out why it is.
 */
 
+/*
+Note API
+  - Prepare insert and union separately as api.　
+    The insert allows duplicates, while the union does not insert if the file already exists.
+*/
 
 
 pub struct Builder {
@@ -129,57 +134,19 @@ where
     FreshVamana::<P>::indexing(&mut ann, shuffled);
 
 
-    /*
-    Note:
-      It is important to index twice from a randomly initialized graph.
-      One-time indexing would create unreferenced nodes from the neighborhood.
-      Since nodes which selected relatively at the beginning don't have actual neighborhoods in its n_out.
-    */
-    let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
-    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+    // /*
+    // Note:
+    //   It is important to index twice from a randomly initialized graph.
+    //   One-time indexing would create unreferenced nodes from the neighborhood.
+    //   Since nodes which selected relatively at the beginning don't have actual neighborhoods in its n_out.
+    // */
+    // println!("\n\n\n");
+    // let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
+    // shuffled.sort_by(|a, b| a.0.cmp(&b.0));
 
-    FreshVamana::<P>::indexing(&mut ann, shuffled);
-
-    let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
-    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
-
-    FreshVamana::<P>::indexing(&mut ann, shuffled);
+    // FreshVamana::<P>::indexing(&mut ann, shuffled);
 
 
-    // // for 1 ≤ i ≤ n do
-    // for (_, i) in shuffled {
-
-    //   // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
-    //   let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
-    //   // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
-    //   // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
-    //   ann.robust_prune(i, visited);
-    //   // println!("n_out: {:?}", &ann.nodes[i].n_out);
-
-    //   // for all points j in Nout(σ(i)) do
-    //   for j in ann.nodes[i].n_out.clone() {
-    //     if ann.nodes[j].n_out.contains(&i) {
-    //       continue;
-    //     } else {
-    //       // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
-    //       insert_id(i, &mut ann.nodes[j].n_out);
-    //       insert_id(j, &mut ann.nodes[i].n_in);
-    //     }
-
-    //     let j_point = &ann.nodes[j].p;
-
-    //     // if |Nout(j) ∪ {σ(i)}| > R then run RobustPrune(j, Nout(j) ∪ {σ(i)}, α, R) to update out-neighbors of j
-    //     if ann.nodes[j].n_out.len() > ann.builder.r {
-    //       // robust_prune requires (dist(xp, p'), index)
-    //       let v: Vec<(f32, usize)> = ann.nodes[j].n_out.clone().into_iter()
-    //         .map(|out_i: usize| 
-    //           (ann.nodes[out_i].p.distance(j_point), out_i)
-    //         ).collect();
-
-    //       ann.robust_prune(j, v);
-    //     }
-    //   }
-    // }
 
     ann
   }
@@ -187,7 +154,9 @@ where
   fn indexing( ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
 
     // for 1 ≤ i ≤ n do
-    for (_, i) in shuffled {
+    for (count, (_, i)) in shuffled.into_iter().enumerate() {
+
+      println!("id : {}\t/{}", count, ann.nodes.len());
 
       // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
       let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
@@ -282,7 +251,7 @@ where
     for grave_i in self.cemetery.clone() {
       // println!("grave id {}, out: {:?}", grave_i, self.nodes[*grave_i].n_in);
       ps = union_ids(&ps, &self.nodes[grave_i].n_in);
-      println!("{}: grave_n_in: {:?}, ps: {:?}" , grave_i, self.nodes[grave_i].n_in, ps);
+      // println!("{}: grave_n_in: {:?}, ps: {:?}" , grave_i, self.nodes[grave_i].n_in, ps);
     }
     // 𝑝 ∈ 𝑃 \ 𝐿𝐷
     ps = diff_ids(&ps, &self.cemetery);
@@ -313,7 +282,7 @@ where
       */
       c = diff_ids(&c, &self.cemetery);
 
-      println!("id: {}, c {:?}, u: {:?}", p, c, d.iter().map(|u| self.nodes[*u].n_out.clone()).collect::<Vec<Vec<usize>>>());
+      // println!("id: {}, c {:?}, u: {:?}", p, c, d.iter().map(|u| self.nodes[*u].n_out.clone()).collect::<Vec<Vec<usize>>>());
 
       // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
       let p_point = self.nodes[p].p.clone();
@@ -331,7 +300,7 @@ where
       self.clean_n_out_edge(p);
       self.robust_prune(p, c_with_dist);
 
-      println!("n_out {:?}", self.nodes[p].n_out);
+      // println!("n_out {:?}", self.nodes[p].n_out);
     }
 
     for grave_i in self.cemetery.clone() {
@@ -440,51 +409,52 @@ where
     let mut visited: Vec<(f32, usize)> = Vec::new();
     let mut list: Vec<(f32, usize)> = vec![(self.nodes[s].p.distance(xq), s)];
 
+    // `working` is a list of unexplored candidates
     let mut working = list.clone(); // Because list\visited == list at beginning
     while working.len() > 0 {
 
       // println!("list: {:?}, visited: {:?} \n\n\n", list, visited);
 
-      /*
-      Note:
-      listはl個であるこをは保証したい。
-      graveのNoutは使いたいから、
-      */
-
       // let p∗ ← arg minp∈L\V ||xp − xq||
       let nearest = find_nearest(&mut working);
 
+
+      // ToDo: refactoring, use union_dist insted 
       if is_contained_in(&nearest.1, &visited) {
         continue;
       } else {
-        // visited.push(nearest)
-        insert_dist(nearest, &mut visited)
+        insert_dist(nearest, &mut visited);
       }
 
       // If the node is marked as grave, remove from result list. But Its neighboring nodes are explored.
       if self.cemetery.contains(&nearest.1) {
-        remove_from(&nearest.1, &mut list);
+        remove_from(&nearest, &mut list);
+        // remove_from_v1(&nearest.1, &mut list)
       }
-      
+      // println!("\nvisited: {:?}\nn_out of {}: {:?}", visited, nearest.1, self.nodes[nearest.1].n_out);
+
+
       // update L ← L ∪ Nout(p∗) andV ← V ∪ {p∗}
       for out_i in &self.nodes[nearest.1].n_out {
-        let node = &self.nodes[*out_i];
-        let node_i = node.id;
+        let out_i_point = &self.nodes[*out_i].p;
 
-        if is_contained_in(&node_i, &list) || is_contained_in(&node_i, &visited) { // Should check visited as grave point is in visited but not in list.
+        if is_contained_in(out_i, &list) || is_contained_in(out_i, &visited) { // Should check visited as grave point is in visited but not in list.
           continue;
         }
 
-        let dist = xq.distance(&node.p);
+        let dist = xq.distance(out_i_point);
         // list.push((dist, node_i));
-        insert_dist((dist, node_i), &mut list)
+        insert_dist((dist, *out_i), &mut list);
       }
+
+      // println!("visited: {:?}\nout_i of nearest: {:?}", visited, self.nodes[nearest.1].n_out);
 
       if list.len() > l {
         sort_and_resize(&mut list, l)
       }
 
       working = set_diff(list.clone(), &visited);
+
     }
 
     sort_and_resize(&mut list, k);
@@ -505,7 +475,8 @@ where
         insert_dist((dist, *n_out), &mut v)
       }
     }
-    remove_from(&xp, &mut v);
+    remove_from(&(0.0, xp), &mut v);
+    // remove_from_v1(&xp, &mut v);
 
     // Delete all back links of each n_out
     // let n_out = &self.nodes[xp].n_out.clone();
@@ -532,10 +503,21 @@ where
       v = rest.to_vec();
 
       // if α · d(p*, p') <= d(p, p') then remove p' from v
-      v.retain(|&(dist_xp_pd, pd)| { // pd is p-dash (p')
-        let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
-          self.builder.a * dist_pa_pd > dist_xp_pd
-      });
+      // v.retain(|&(dist_xp_pd, pd)| { // pd is p-dash (p')
+      //   let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
+      //   self.builder.a * dist_pa_pd > dist_xp_pd
+      // });
+      let mut v_new = vec![(0.0, 0); v.len()];
+      let mut v_new_count = 0;
+      for (dist_xp_pd, pd) in v {
+          let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
+          if self.builder.a * dist_pa_pd > dist_xp_pd {
+            v_new.push((dist_xp_pd, pd));
+            v_new_count += 1;
+          }
+      }
+      v_new.truncate(v_new_count);
+      v = v_new;
     }
 
   }
@@ -544,7 +526,6 @@ where
     // Delete all back links of each n_out
     let n_out = &self.nodes[id].n_out.clone();
     for out_i in n_out {
-      // self.nodes[*out_i].n_in.retain(|&x| x!=id);
       delete_id(id, &mut self.nodes[*out_i].n_in);
     }
     self.nodes[id].n_out = vec![];
@@ -589,7 +570,7 @@ fn sort_list_by_dist(list: &mut Vec<(f32, usize)>) {
 }
 
 fn find_nearest(c: &mut Vec<(f32, usize)>) -> (f32, usize) {
-  sort_list_by_dist(c);
+  sort_list_by_dist(c); // ToDo: Ensure that the arugment list is already sorted.
   c[0]
 }
 
@@ -602,8 +583,35 @@ fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
   vec.iter().filter(|(_, id)| *id == *i).collect::<Vec<&(f32, usize)>>().len() != 0
 }
 
-fn remove_from(i: &usize, vec: &mut Vec<(f32, usize)>) {
-  vec.retain(|&(_, x)| x!=*i);
+// fn remove_from_v1(i: &usize, vec: &mut Vec<(f32, usize)>) {
+//   vec.retain(|&(_, x)| x!=*i);
+// }
+
+fn remove_from(value: &(f32, usize), vec: &mut Vec<(f32, usize)>) {
+  let result = vec.binary_search_by(|probe| probe.0.partial_cmp(&value.0).unwrap());
+
+  match result {
+      Ok(index) => {
+          // If an element with a matching f32 value is found, check if the usize also matches.
+          // search back and forth since they may have the same f32 value.
+          let mut start = index;
+          while start > 0 && vec[start - 1].0 == value.0 {
+              start -= 1;
+          }
+          let mut end = index;
+          while end < vec.len() - 1 && vec[end + 1].0 == value.0 {
+              end += 1;
+          }
+
+          // Find elements with matching usize values in the start to end range.
+          if let Some(pos) = (start..=end).find(|&i| vec[i].1 == value.1) {
+              vec.remove(pos);
+          }
+      },
+      Err(_) => {
+          // If the value of f32 is not found, nothing is done.
+      },
+  }
 }
 
 fn insert_id(value: usize, vec: &mut Vec<usize>) {
@@ -630,8 +638,21 @@ fn delete_id(value: usize, vec: &mut Vec<usize>) {
 
 fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
   match vec.binary_search_by(|probe| probe.0.partial_cmp(&value.0).unwrap_or(std::cmp::Ordering::Less)) {
-    Ok(_index) => {
-      return // If already exsits
+    Ok(index) => {
+      // identify a range of groups of elements with the same f32 value
+      let mut start = index;
+      while start > 0 && vec[start - 1].0 == value.0 {
+          start -= 1;
+      }
+      let mut end = index;
+      while end < vec.len() - 1 && vec[end + 1].0 == value.0 {
+          end += 1;
+      }
+
+      // Check for elements with the same usize value within the specified range
+      if !(start..=end).any(|i| vec[i].1 == value.1) {
+          vec.insert(index, value);
+      }
     },
     Err(index) => {
       vec.insert(index, value);
@@ -717,7 +738,7 @@ mod tests {
             .zip(other.0.iter())
             .map(|(a, b)| (*a as f32 - *b as f32).powi(2))
             .sum::<f32>()
-            .sqrt()
+            // .sqrt()
       }
       fn dim() -> u32 {
         3
@@ -764,7 +785,7 @@ mod tests {
 
     let mut builder = Builder::default();
     builder.set_l(30);
-    // builder.set_seed(9706176376352270582);
+    // builder.set_seed(11677721592066047712);
     let l = builder.l;
 
     let mut i = 0;
@@ -781,10 +802,10 @@ mod tests {
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
 
-    println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
-    for node in &ann.nodes {
-      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    }
+    // println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
+    // for node in &ann.nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
     println!();
 
     println!("{:?}", k_anns);
@@ -841,8 +862,8 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     builder.set_r(30);
-    builder.set_a(2.0);
-    builder.set_seed(826142338715444524);
+    builder.set_a(1.2);
+    // builder.set_seed(826142338715444524);
     // let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
 
@@ -892,6 +913,76 @@ mod tests {
     
     let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
     assert_eq!(diff, expected);
+
+
+  }
+
+  #[test]
+  fn test_insert_ann() {
+
+    let mut builder = Builder::default();
+    builder.set_l(30);
+    builder.set_r(30);
+    builder.set_a(1.2);
+    // builder.set_seed(826142338715444524);
+    // let mut rng = SmallRng::seed_from_u64(builder.seed);
+    let l = builder.l;
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..500).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a;3])
+    }).collect();
+
+    // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+    let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
+
+
+    println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
+    for node in &ann.nodes {
+      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    }
+    println!();
+
+    let xq = Point(vec![0;3]);
+    let k = 30;
+    let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+
+    // mark as grave
+    ann.inter(k_anns[2].1);
+    ann.inter(k_anns[5].1);
+    ann.inter(k_anns[9].1);
+    let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
+    let deleted = vec![ann.nodes[2].p.clone(), ann.nodes[5].p.clone(), ann.nodes[9].p.clone()];
+    ann.remove_graves();
+
+    let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
+    // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
+
+    println!("\n------- ann.remove_graves(); --------\n");
+    for node in &ann.nodes {
+      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    }
+
+    assert_ne!(k_anns_intered, k_anns);
+
+    let k_anns_ids: Vec<usize>          = k_anns.clone().into_iter().map(|(_, id)| id).collect();
+    let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+
+    // println!("\n\n{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
+    
+    let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
+    assert_eq!(diff, expected);
+
+    for d in deleted {
+      ann.insert(d)
+    }
+
+    let (k_anns_inserted, _) = ann.greedy_search(&xq, k, l);
+    assert_eq!(k_anns_inserted, k_anns);
+    println!("{:?}", k_anns_inserted);
 
 
   }
@@ -1008,7 +1099,7 @@ mod tests {
   #[test]
   fn test_remove_from() {
     let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
-    remove_from(&3, &mut a);
+    remove_from(&(0.3, 3), &mut a);
     assert_eq!(a, vec![(0.2, 2), (0.1, 1), (0.0, 0)])
 
   }
@@ -1018,7 +1109,11 @@ mod tests {
     let mut a = vec![0, 1 , 3 , 4];
     insert_id(2, &mut a);
     insert_id(2, &mut a);
-    assert_eq!(a, vec![0, 1 , 2 , 3, 4])
+    assert_eq!(a, vec![0, 1 , 2 , 3, 4]);
+
+    let mut a = vec![1 , 3 , 4];
+    insert_id(0, &mut a);
+    assert_eq!(a, vec![0, 1 , 3, 4])
 
   }
 
@@ -1027,7 +1122,11 @@ mod tests {
     let mut a = vec![(0.0, 0), (0.1, 1), (0.3, 3)];
     insert_dist((0.2, 2), &mut a);
     insert_dist((0.2, 2), &mut a);
-    assert_eq!(a, vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)])
+    assert_eq!(a, vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)]);
+
+    let mut a = vec![(0.0, 1), (1.7320508, 2), (3.4641016, 3), (5.196152, 4), (6.928203, 5), (8.6602545, 6), (12.124355, 8), (13.856406, 9), (15.588457, 10), (17.320509, 11), (19.052559, 12), (20.784609, 13), (22.51666, 14), (24.24871, 15), (27.712812, 17), (862.5613, 499)];
+    insert_dist((1.7320508, 0), &mut a);
+    assert_eq!(a, vec![(0.0, 1), (1.7320508, 0), (1.7320508, 2), (3.4641016, 3), (5.196152, 4), (6.928203, 5), (8.6602545, 6), (12.124355, 8), (13.856406, 9), (15.588457, 10), (17.320509, 11), (19.052559, 12), (20.784609, 13), (22.51666, 14), (24.24871, 15), (27.712812, 17), (862.5613, 499)])
 
   }
 
