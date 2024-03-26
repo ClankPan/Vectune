@@ -1,14 +1,11 @@
+// use std::collections::HashMap;
+use hashbrown::HashMap;
+use ahash::AHasher;
+use std::hash::BuildHasherDefault;
+
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
-/*
-
-cache戦略のアイデア
-  ICはSSDのような並列に読み出しできない環境では、空間的に近いノードを近くに配置しておくことが望ましい。
-  insertで、最近傍を探して、最も近い空いてる場所に入れるような方式をとるのはどうか。
-  10%多く見積もって、あらかじめ隙間を開けておく。適度に圧縮・拡張をする。
-
-*/
 
 /*
 Debug Note:
@@ -110,6 +107,7 @@ pub struct FreshVamana<P>
   builder: Builder,
   cemetery: Vec<usize>,
   empties: Vec<usize>,
+  dist_cache: HashMap<(usize, usize), f32, BuildHasherDefault<AHasher>>,
 }
 
 impl<P> FreshVamana<P>
@@ -146,12 +144,14 @@ where
 
     // FreshVamana::<P>::indexing(&mut ann, shuffled);
 
+    println!("dist cache len: {} / {}", ann.dist_cache.len(), (ann.nodes.len() * ann.nodes.len()) / 2);
+
 
 
     ann
   }
 
-  fn indexing( ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
+  fn indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
 
     // for 1 ≤ i ≤ n do
     for (count, (_, i)) in shuffled.into_iter().enumerate() {
@@ -175,19 +175,33 @@ where
           insert_id(j, &mut ann.nodes[i].n_in);
         }
 
-        let j_point = &ann.nodes[j].p;
-
         // if |Nout(j) ∪ {σ(i)}| > R then run RobustPrune(j, Nout(j) ∪ {σ(i)}, α, R) to update out-neighbors of j
         if ann.nodes[j].n_out.len() > ann.builder.r {
           // robust_prune requires (dist(xp, p'), index)
           let v: Vec<(f32, usize)> = ann.nodes[j].n_out.clone().into_iter()
             .map(|out_i: usize| 
-              (ann.nodes[out_i].p.distance(j_point), out_i)
+              // (ann.nodes[out_i].p.distance(j_point), out_i)
+              (ann.node_distance(out_i, j), out_i)
             ).collect();
 
           ann.robust_prune(j, v);
         }
       }
+    }
+  }
+
+  fn node_distance(&mut self, a: usize, b: usize) -> f32 {
+    let key = (std::cmp::min(a, b), std::cmp::max(a, b));
+    match self.dist_cache.get(&key) {
+      Some(dist) => {
+        // println!("cache is used {:?}", key);
+        *dist
+      },
+      None => {
+        let dist = self.nodes[a].p.distance(&self.nodes[b].p);
+        self.dist_cache.insert(key, dist);
+        dist
+      },
     }
   }
 
@@ -231,10 +245,10 @@ where
     }
   }
 
-  fn make_edge(out_i: usize, in_i: usize) { // out_i -> in_i
-    // todo make sure adding backlinks
-    todo!();
-  }
+  // fn make_edge(out_i: usize, in_i: usize) { // out_i -> in_i
+  //   // todo make sure adding backlinks
+  //   todo!();
+  // }
 
   pub fn remove_graves(&mut self) {
     // for node in &self.nodes {
@@ -323,6 +337,7 @@ where
           builder,
           cemetery: Vec::new(),
           empties: Vec::new(),
+          dist_cache: HashMap::new(),
         }
     }
 
@@ -392,13 +407,15 @@ where
     // for node in &nodes {
     //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
     // }
-
+    
+    let node_len = nodes.len();
     Self {
       nodes,
       centroid,
       builder,
       cemetery: Vec::new(),
       empties: Vec::new(),
+      dist_cache: HashMap::with_capacity(node_len/2),
     }
 
   }
@@ -465,14 +482,15 @@ where
   }
 
   fn robust_prune(&mut self, xp: usize, mut v: Vec<(f32, usize)>) {
-    let node = &self.nodes[xp];
+    let n_out = self.nodes[xp].n_out.clone();
 
     // V ← (V ∪ Nout(p)) \ {p}
-    for n_out in &node.n_out {
-      if !is_contained_in(n_out, &v) {
-        let dist = node.p.distance(&self.nodes[*n_out].p);
+    for out_i in n_out {
+      if !is_contained_in(&out_i, &v) {
+        // let dist = node.p.distance(&self.nodes[*n_out].p);
+        let dist = self.node_distance(xp, out_i);
         // v.push((dist, *n_out))
-        insert_dist((dist, *n_out), &mut v)
+        insert_dist((dist, out_i), &mut v)
       }
     }
     remove_from(&(0.0, xp), &mut v);
@@ -492,10 +510,10 @@ where
 
 
     while let Some((first, rest)) = v.split_first() {
-      let pa = first; // pa is p asterisk (p*), which is nearest point to p in this loop
-      let pa_point = self.nodes[pa.1].p.clone();
-      insert_id(pa.1, &mut self.nodes[xp].n_out);
-      insert_id(xp, &mut self.nodes[pa.1].n_in); // back link
+      let (_, pa) = first.clone(); // pa is p asterisk (p*), which is nearest point to p in this loop
+      // let pa_point = self.nodes[pa.1].p.clone();
+      insert_id(pa, &mut self.nodes[xp].n_out);
+      insert_id(xp, &mut self.nodes[pa].n_in); // back link
 
       if self.nodes[xp].n_out.len() == self.builder.r {
         break;
@@ -503,21 +521,15 @@ where
       v = rest.to_vec();
 
       // if α · d(p*, p') <= d(p, p') then remove p' from v
-      // v.retain(|&(dist_xp_pd, pd)| { // pd is p-dash (p')
-      //   let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
+      // v.retain(|&(dist_xp_pd, pd)| {
+      //   let dist_pa_pd = self.nodes[pd].p.distance(&pa_point);
       //   self.builder.a * dist_pa_pd > dist_xp_pd
-      // });
-      let mut v_new = vec![(0.0, 0); v.len()];
-      let mut v_new_count = 0;
-      for (dist_xp_pd, pd) in v {
-          let dist_pa_pd =  self.nodes[pd].p.distance(&pa_point);
-          if self.builder.a * dist_pa_pd > dist_xp_pd {
-            v_new.push((dist_xp_pd, pd));
-            v_new_count += 1;
-          }
-      }
-      v_new.truncate(v_new_count);
-      v = v_new;
+      // })
+      v.retain(|&(dist_xp_pd, pd)| {
+        let dist_pa_pd = self.node_distance(pd, pa);
+        self.builder.a * dist_pa_pd > dist_xp_pd
+      })
+
     }
 
   }
@@ -531,7 +543,6 @@ where
     self.nodes[id].n_out = vec![];
   }
 }
-
 
 fn set_diff(a: Vec<(f32, usize)>, b: &Vec<(f32, usize)>) -> Vec<(f32, usize)> {
   a.into_iter().filter(|(_, p)| !is_contained_in(p, b)).collect()
@@ -727,7 +738,7 @@ mod tests {
 
   use super::{Point as VPoint, *};
   use rand::rngs::SmallRng;
-  use rand::{Rng, SeedableRng};
+  use rand::SeedableRng;
 
 
   #[derive(Clone, Debug)]
@@ -1051,8 +1062,12 @@ mod tests {
 
       let pd = rest[0];
 
-      let dist_xp_pd = ann.nodes[pd].p.distance(&xq);
-      let dist_pa_pd = ann.nodes[pd].p.distance(&ann.nodes[*pa].p);
+      // let dist_xp_pd = ann.nodes[pd].p.distance(&xq); (ann.node_distance(out_i, j), out_i)
+      // let dist_pa_pd = ann.nodes[pd].p.distance(&ann.nodes[*pa].p);
+
+      let dist_xp_pd = ann.node_distance(pd, i);
+      let dist_pa_pd = ann.node_distance(pd, *pa);
+
 
       assert!(ann.builder.a * dist_pa_pd > dist_xp_pd);
 

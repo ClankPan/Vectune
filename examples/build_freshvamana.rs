@@ -5,6 +5,7 @@ use fresh_vamana::{Point as VamanaPoint, FreshVamanaMap, Builder as VamanaBuilde
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
+
 #[derive(Deserialize, Debug)]
 // #[serde(deny_unknown_fields)]
 struct Data {
@@ -13,6 +14,11 @@ struct Data {
 }
 
 fn main() {
+  #[cfg(feature = "nightly")]
+  println!("nightly simd mode");
+  #[cfg(not(feature = "nightly"))]
+  println!("normal mode");
+
   let mut rng = SmallRng::seed_from_u64(rand::random());
   let file_path = "./embeddings_wiki_random_half.json";
 
@@ -50,10 +56,11 @@ impl VamanaPoint for Point {
     fn distance(&self, other: &Self) -> f32 {
         self.0.iter()
           .zip(other.0.iter())
-          .map(|(a, b)| (*a - *b).powi(2))
+          .map(|(a, b)| (a - b).powi(2))
           .sum::<f32>()
-          .sqrt()
+          // .sqrt()
     }
+
     fn dim() -> u32 {
       384
     }
