@@ -18,7 +18,7 @@ Note API
     The insert allows duplicates, while the union does not insert if the file already exists.
 */
 
-
+#[derive(Clone)]
 pub struct Builder {
   a: f32,
   r: usize,
@@ -82,6 +82,7 @@ where
   }
 }
 
+#[derive(Clone)]
 struct Node<P> {
   n_out: Vec<usize>, // has pointer. ToDo: should use PQ to resuce memory accesses.
   n_in: Vec<usize>,
@@ -100,6 +101,7 @@ impl<P> Node<P> {
   }
 }
 
+#[derive(Clone)]
 pub struct FreshVamana<P>
 {
   nodes: Vec<Node<P>>,
@@ -120,7 +122,6 @@ where
 
     // Initialize Random Graph
     let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng);
-
 
     // Prune Edges
 
@@ -152,42 +153,40 @@ where
   }
 
   fn indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
+    let ann_fix = ann.clone();
+    /*
+      Note:
+        並列性を確かめるために、Noutを更新していくのではなく、ランダムに接続されたNoutをイテレートの最後で使用する。
+        Noutは普遍のann_fixを参照して、可変の方を変えていく。この変更はGreedySearchに影響しない。
+    */
 
-    // for 1 ≤ i ≤ n do
-    for (count, (_, i)) in shuffled.into_iter().enumerate() {
+    // Noutを並列でVisitedで更新できるようにする。
+    for (_, i) in shuffled.iter() {
+      let i = *i;
+      let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[i].p, 1, ann_fix.builder.l);
 
-      println!("id : {}\t/{}", count, ann.nodes.len());
+      let visited_ids = visited.into_iter().map(|(_, id)| id).collect();
 
-      // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
-      let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
-      // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
-      // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
-      ann.robust_prune(i, visited);
-      // println!("n_out: {:?}", &ann.nodes[i].n_out);
+      ann.nodes[i].n_out = union_ids(&ann_fix.nodes[i].n_out, &visited_ids);
 
-      // for all points j in Nout(σ(i)) do
       for j in ann.nodes[i].n_out.clone() {
-        if ann.nodes[j].n_out.contains(&i) {
-          continue;
-        } else {
-          // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
-          insert_id(i, &mut ann.nodes[j].n_out);
-          insert_id(j, &mut ann.nodes[i].n_in);
-        }
-
-        // if |Nout(j) ∪ {σ(i)}| > R then run RobustPrune(j, Nout(j) ∪ {σ(i)}, α, R) to update out-neighbors of j
-        if ann.nodes[j].n_out.len() > ann.builder.r {
-          // robust_prune requires (dist(xp, p'), index)
-          let v: Vec<(f32, usize)> = ann.nodes[j].n_out.clone().into_iter()
-            .map(|out_i: usize| 
-              // (ann.nodes[out_i].p.distance(j_point), out_i)
-              (ann.node_distance(out_i, j), out_i)
-            ).collect();
-
-          ann.robust_prune(j, v);
-        }
+        ann.nodes[j].n_out = union_ids(&ann.nodes[j].n_out, &vec![i]);
+        ann.nodes[j].n_in  = union_ids(&ann.nodes[j].n_in,  &vec![i]);
       }
     }
+
+
+    // Noutを並列でRobustPruneできるようにする。
+    for (_, i) in shuffled.iter() {
+      let mut v: Vec<(f32, usize)> = ann.nodes[*i].n_out.clone().into_iter().map(|j| {
+        (ann.node_distance(*i, j), j)
+      }).collect();
+
+      sort_list_by_dist(&mut v);
+
+      ann.robust_prune(*i, v);
+    }
+
   }
 
   fn node_distance(&mut self, a: usize, b: usize) -> f32 {
@@ -930,6 +929,8 @@ mod tests {
 
   #[test]
   fn test_insert_ann() {
+
+    // 2520746169080459812
 
     let mut builder = Builder::default();
     builder.set_l(30);
