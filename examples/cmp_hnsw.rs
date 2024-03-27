@@ -1,7 +1,7 @@
 use instant_distance::{Builder as HnswBuilder, Search, HnswMap, Point as HnswPoint};
 use serde::Deserialize;
 use std::fs;
-use fresh_vamana::{Point as VamanaPoint, FreshVamanaMap, Builder as VamanaBuilder};
+use vectune::{Point as VamanaPoint, FreshVamanaMap, Builder as VamanaBuilder};
 
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
