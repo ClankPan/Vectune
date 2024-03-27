@@ -130,7 +130,7 @@ where
     let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
     shuffled.sort_by(|a, b| a.0.cmp(&b.0));
 
-    FreshVamana::<P>::indexing(&mut ann, shuffled);
+    FreshVamana::<P>::para_indexing(&mut ann, shuffled);
 
 
     // /*
@@ -152,40 +152,108 @@ where
     ann
   }
 
-  fn indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
-    let ann_fix = ann.clone();
-    /*
-      Note:
-        並列性を確かめるために、Noutを更新していくのではなく、ランダムに接続されたNoutをイテレートの最後で使用する。
-        Noutは普遍のann_fixを参照して、可変の方を変えていく。この変更はGreedySearchに影響しない。
-    */
 
-    // Noutを並列でVisitedで更新できるようにする。
-    for (_, i) in shuffled.iter() {
+  fn indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
+
+    // for 1 ≤ i ≤ n do
+    for (count, (_, i)) in shuffled.into_iter().enumerate() {
+
+      println!("id : {}\t/{}", count, ann.nodes.len());
+
+      // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
+      let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
+      // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
+      // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
+      ann.robust_prune(i, visited);
+      // println!("n_out: {:?}", &ann.nodes[i].n_out);
+
+      // for all points j in Nout(σ(i)) do
+      for j in ann.nodes[i].n_out.clone() {
+        if ann.nodes[j].n_out.contains(&i) {
+          continue;
+        } else {
+          // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
+          insert_id(i, &mut ann.nodes[j].n_out);
+          insert_id(j, &mut ann.nodes[i].n_in);
+        }
+
+        // if |Nout(j) ∪ {σ(i)}| > R then run RobustPrune(j, Nout(j) ∪ {σ(i)}, α, R) to update out-neighbors of j
+        if ann.nodes[j].n_out.len() > ann.builder.r {
+          // robust_prune requires (dist(xp, p'), index)
+          let v: Vec<(f32, usize)> = ann.nodes[j].n_out.clone().into_iter()
+            .map(|out_i: usize| 
+              // (ann.nodes[out_i].p.distance(j_point), out_i)
+              (ann.node_distance(out_i, j), out_i)
+            ).collect();
+
+          ann.robust_prune(j, v);
+        }
+      }
+    }
+  }
+
+  fn para_indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
+    let ann_fix = ann.clone();
+
+    // println!("\n\n\n------- randaom graph --------\n");
+    // for node in &ann.nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
+
+    for (count, (_, i)) in shuffled.iter().enumerate() {
+
+
       let i = *i;
       let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[i].p, 1, ann_fix.builder.l);
 
-      let visited_ids = visited.into_iter().map(|(_, id)| id).collect();
+      println!("visiting phase, id : {}\t/{} visited len: {}", count, ann.nodes.len(), visited.len());
 
-      ann.nodes[i].n_out = union_ids(&ann_fix.nodes[i].n_out, &visited_ids);
+      let mut visited_ids: Vec<usize> = visited.into_iter().map(|(_, id)| id).collect(); // ToDo: reuse dist
+      visited_ids.sort();
+
+      // ann.nodes[i].n_outを上書きしないように気を付ける。
+      for id in visited_ids {
+        insert_id(id, &mut ann.nodes[i].n_out);
+        insert_id(i,  &mut ann.nodes[id].n_in);
+      }
 
       for j in ann.nodes[i].n_out.clone() {
-        ann.nodes[j].n_out = union_ids(&ann.nodes[j].n_out, &vec![i]);
-        ann.nodes[j].n_in  = union_ids(&ann.nodes[j].n_in,  &vec![i]);
+
+        insert_id(i, &mut ann.nodes[j].n_out);
+        insert_id(j, &mut ann.nodes[i].n_in);
+
       }
     }
 
+    // println!("\n\n\n------- randaom graph vistied --------\n");
+    // for node in &ann.nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
+
+    // メモ： N_outがソートされてないで挿入されている。union_idがおかしい？ insertを使うべき？
+
 
     // Noutを並列でRobustPruneできるようにする。
-    for (_, i) in shuffled.iter() {
+    for (count, (_, i)) in shuffled.iter().enumerate() {
+
+      println!("robust pruning phase, id : {}\t/{}", count, ann.nodes.len());
+
+
       let mut v: Vec<(f32, usize)> = ann.nodes[*i].n_out.clone().into_iter().map(|j| {
         (ann.node_distance(*i, j), j)
       }).collect();
 
       sort_list_by_dist(&mut v);
 
+      // println!("id: {}, v {:?}\n\n", i, v);
+
       ann.robust_prune(*i, v);
     }
+
+    // println!("\n\n\n------- robust pruned --------\n");
+    // for node in &ann.nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
 
   }
 
@@ -206,6 +274,9 @@ where
 
   pub fn insert(&mut self, p: P) {
     // Add node
+
+    // println!("self.empties) {:?}", self.empties);
+
     let pid =  if self.empties.len() == 0 { // ToDo: cache
       let id = self.nodes.len();
       self.nodes.push(Node::new(p.clone(), id));
@@ -216,6 +287,8 @@ where
       self.nodes[id] = Node::new(p.clone(), id);
       id
     };
+
+    // println!("new id {}", pid);
 
     // [L, V] ← GreedySearch(𝑠, 𝑝, 1, 𝐿)
     let (_list, visited) = self.greedy_search(&p, 1, self.builder.l);
@@ -524,6 +597,15 @@ where
       //   let dist_pa_pd = self.nodes[pd].p.distance(&pa_point);
       //   self.builder.a * dist_pa_pd > dist_xp_pd
       // })
+
+      // if xp == 0 {
+      //   for (dist_xp_pd, pd) in &v {
+      //     let dist_pa_pd = self.node_distance(*pd, pa);
+      //     println!("out id: {}, dist_pa_pd: {}, dist_xp_pd: {}, {} diff: {}", pd,dist_pa_pd,dist_xp_pd,   self.builder.a * dist_pa_pd >= *dist_xp_pd, dist_xp_pd/dist_pa_pd)
+      //   }
+      //   println!();
+      // }
+
       v.retain(|&(dist_xp_pd, pd)| {
         let dist_pa_pd = self.node_distance(pd, pa);
         self.builder.a * dist_pa_pd > dist_xp_pd
@@ -748,7 +830,7 @@ mod tests {
             .zip(other.0.iter())
             .map(|(a, b)| (*a as f32 - *b as f32).powi(2))
             .sum::<f32>()
-            // .sqrt()
+            .sqrt() 
       }
       fn dim() -> u32 {
         3
@@ -872,7 +954,7 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     builder.set_r(30);
-    builder.set_a(1.2);
+    // builder.set_a(1.2);
     // builder.set_seed(826142338715444524);
     // let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
@@ -935,7 +1017,8 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     builder.set_r(30);
-    builder.set_a(1.2);
+    builder.set_a(2.0);
+    // builder.set_seed(14218614291317846415);
     // builder.set_seed(826142338715444524);
     // let mut rng = SmallRng::seed_from_u64(builder.seed);
     let l = builder.l;
@@ -952,15 +1035,19 @@ mod tests {
     let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
 
 
-    println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
-    for node in &ann.nodes {
-      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    }
+    // println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
+    // for node in &ann.nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
+
+
     println!();
 
     let xq = Point(vec![0;3]);
     let k = 30;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+
+    println!("k_anns {:?}", k_anns);
 
     // mark as grave
     ann.inter(k_anns[2].1);
@@ -968,15 +1055,19 @@ mod tests {
     ann.inter(k_anns[9].1);
     let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
     let deleted = vec![ann.nodes[2].p.clone(), ann.nodes[5].p.clone(), ann.nodes[9].p.clone()];
+    println!("expected :{:?}", expected);
+    println!("k_anns[2].1 {}, k_anns[5].1 {}, k_anns[9].1, {}", k_anns[2].1, k_anns[5].1, k_anns[9].1);
+    println!("deleted :{:?}", deleted);
+    println!("cemetery :{:?}", ann.cemetery);
     ann.remove_graves();
 
     let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
     // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
 
-    println!("\n------- ann.remove_graves(); --------\n");
-    for node in &ann.nodes {
-      println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    }
+    // println!("\n------- ann.remove_graves(); --------\n");
+    // for node in &ann.nodes {
+    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+    // }
 
     assert_ne!(k_anns_intered, k_anns);
 
