@@ -162,10 +162,8 @@ where
 
       // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
       let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
-      // println!("visited: {:?}", visited.clone().iter().map(|(_, i)| *i).collect::<Vec<usize>>());
       // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
       ann.robust_prune(i, visited);
-      // println!("n_out: {:?}", &ann.nodes[i].n_out);
 
       // for all points j in Nout(σ(i)) do
       for j in ann.nodes[i].n_out.clone() {
@@ -195,18 +193,13 @@ where
   fn para_indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
     let ann_fix = ann.clone();
 
-    // println!("\n\n\n------- randaom graph --------\n");
-    // for node in &ann.nodes {
-    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    // }
-
     for (count, (_, i)) in shuffled.iter().enumerate() {
 
 
       let i = *i;
       let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[i].p, 1, ann_fix.builder.l);
 
-      println!("visiting phase, id : {}\t/{} visited len: {}", count, ann.nodes.len(), visited.len());
+      // println!("visiting phase, id : {}\t/{} visited len: {}", count, ann.nodes.len(), visited.len());
 
       let mut visited_ids: Vec<usize> = visited.into_iter().map(|(_, id)| id).collect(); // ToDo: reuse dist
       visited_ids.sort();
@@ -225,18 +218,13 @@ where
       }
     }
 
-    // println!("\n\n\n------- randaom graph vistied --------\n");
-    // for node in &ann.nodes {
-    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    // }
-
     // メモ： N_outがソートされてないで挿入されている。union_idがおかしい？ insertを使うべき？
 
 
     // Noutを並列でRobustPruneできるようにする。
     for (count, (_, i)) in shuffled.iter().enumerate() {
 
-      println!("robust pruning phase, id : {}\t/{}", count, ann.nodes.len());
+      // println!("robust pruning phase, id : {}\t/{}", count, ann.nodes.len());
 
 
       let mut v: Vec<(f32, usize)> = ann.nodes[*i].n_out.clone().into_iter().map(|j| {
@@ -249,11 +237,6 @@ where
 
       ann.robust_prune(*i, v);
     }
-
-    // println!("\n\n\n------- robust pruned --------\n");
-    // for node in &ann.nodes {
-    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    // }
 
   }
 
@@ -275,8 +258,6 @@ where
   pub fn insert(&mut self, p: P) {
     // Add node
 
-    // println!("self.empties) {:?}", self.empties);
-
     let pid =  if self.empties.len() == 0 { // ToDo: cache
       let id = self.nodes.len();
       self.nodes.push(Node::new(p.clone(), id));
@@ -288,7 +269,6 @@ where
       id
     };
 
-    // println!("new id {}", pid);
 
     // [L, V] ← GreedySearch(𝑠, 𝑝, 1, 𝐿)
     let (_list, visited) = self.greedy_search(&p, 1, self.builder.l);
@@ -323,10 +303,6 @@ where
   // }
 
   pub fn remove_graves(&mut self) {
-    // for node in &self.nodes {
-    //   // println!("id {},\n out: {:?},\n in: {:?}", node.id, node.n_out, node.n_in);
-    // }
-    // println!("");
 
 
     /* 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅ */
@@ -357,8 +333,6 @@ where
         c = union_ids(&c, &self.nodes[*u].n_out);
       }
 
-      // println!("id: {}, D {:?} , C: {:?}", p, d, c);
-
       // C ← C \ D
       /*
        Note:
@@ -368,13 +342,9 @@ where
       */
       c = diff_ids(&c, &self.cemetery);
 
-      // println!("id: {}, c {:?}, u: {:?}", p, c, d.iter().map(|u| self.nodes[*u].n_out.clone()).collect::<Vec<Vec<usize>>>());
-
       // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
       let p_point = self.nodes[p].p.clone();
       let mut c_with_dist: Vec<(f32, usize)> = c.into_iter().map(|id| (p_point.distance(&self.nodes[id].p), id)).collect();
-
-      // println!("id: {}, c {:?}", p, c_with_dist);
 
       sort_list_by_dist(&mut c_with_dist);
       /* 
@@ -386,7 +356,6 @@ where
       self.clean_n_out_edge(p);
       self.robust_prune(p, c_with_dist);
 
-      // println!("n_out {:?}", self.nodes[p].n_out);
     }
 
     for grave_i in self.cemetery.clone() {
@@ -445,15 +414,6 @@ where
     let node_len = nodes.len();
 
     for node_i in 0..node_len {
-      // let mut outs: Vec<usize> = Vec::new();
-      // while outs.len() < builder.r {
-      //   let rand_node_i = rng.gen_range(0..working.len() as usize);
-      //   if rand_node_i == node_i {
-      //     continue;
-      //   }
-      //   outs = union_ids(&outs, &vec![rand_node_i]);
-      // }
-
       let mut n_out_cout = 0;
       while n_out_cout < builder.r {
         let working_i = rng.gen_range(0..working.len() as usize);
@@ -474,12 +434,6 @@ where
       }
     }
 
-
-    // println!("----------- Init Rand Graph -----------");
-    // for node in &nodes {
-    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    // }
-    
     let node_len = nodes.len();
     Self {
       nodes,
@@ -502,8 +456,6 @@ where
     let mut working = list.clone(); // Because list\visited == list at beginning
     while working.len() > 0 {
 
-      // println!("list: {:?}, visited: {:?} \n\n\n", list, visited);
-
       // let p∗ ← arg minp∈L\V ||xp − xq||
       let nearest = find_nearest(&mut working);
 
@@ -520,7 +472,6 @@ where
         remove_from(&nearest, &mut list);
         // remove_from_v1(&nearest.1, &mut list)
       }
-      // println!("\nvisited: {:?}\nn_out of {}: {:?}", visited, nearest.1, self.nodes[nearest.1].n_out);
 
 
       // update L ← L ∪ Nout(p∗) andV ← V ∪ {p∗}
@@ -535,8 +486,6 @@ where
         // list.push((dist, node_i));
         insert_dist((dist, *out_i), &mut list);
       }
-
-      // println!("visited: {:?}\nout_i of nearest: {:?}", visited, self.nodes[nearest.1].n_out);
 
       if list.len() > l {
         sort_and_resize(&mut list, l)
@@ -569,11 +518,6 @@ where
     // remove_from_v1(&xp, &mut v);
 
     // Delete all back links of each n_out
-    // let n_out = &self.nodes[xp].n_out.clone();
-    // for out_i in n_out {
-    //   self.nodes[*out_i].n_in.retain(|&x| x!=xp);
-    // }
-    // self.nodes[xp].n_out = vec![];
     self.clean_n_out_edge(xp);
 
     // println!("v : {:?}", v);
@@ -593,19 +537,6 @@ where
       v = rest.to_vec();
 
       // if α · d(p*, p') <= d(p, p') then remove p' from v
-      // v.retain(|&(dist_xp_pd, pd)| {
-      //   let dist_pa_pd = self.nodes[pd].p.distance(&pa_point);
-      //   self.builder.a * dist_pa_pd > dist_xp_pd
-      // })
-
-      // if xp == 0 {
-      //   for (dist_xp_pd, pd) in &v {
-      //     let dist_pa_pd = self.node_distance(*pd, pa);
-      //     println!("out id: {}, dist_pa_pd: {}, dist_xp_pd: {}, {} diff: {}", pd,dist_pa_pd,dist_xp_pd,   self.builder.a * dist_pa_pd >= *dist_xp_pd, dist_xp_pd/dist_pa_pd)
-      //   }
-      //   println!();
-      // }
-
       v.retain(|&(dist_xp_pd, pd)| {
         let dist_pa_pd = self.node_distance(pd, pa);
         self.builder.a * dist_pa_pd > dist_xp_pd
@@ -674,10 +605,6 @@ fn sort_and_resize(list: &mut Vec<(f32, usize)>, size: usize) {
 fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
   vec.iter().filter(|(_, id)| *id == *i).collect::<Vec<&(f32, usize)>>().len() != 0
 }
-
-// fn remove_from_v1(i: &usize, vec: &mut Vec<(f32, usize)>) {
-//   vec.retain(|&(_, x)| x!=*i);
-// }
 
 fn remove_from(value: &(f32, usize), vec: &mut Vec<(f32, usize)>) {
   let result = vec.binary_search_by(|probe| probe.0.partial_cmp(&value.0).unwrap());
