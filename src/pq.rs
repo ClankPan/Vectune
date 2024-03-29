@@ -47,10 +47,10 @@ where
     println!("params:: m: {}, d: {}, k: {}, d_: {}", &self.m,  &self.d,  &self.k,  &self.d_);
 
     for sub_i in 0..self.m {
-      println!("sub_i: {}", sub_i);
+      // println!("sub_i: {}", sub_i);
       let start_i = sub_i * self.d_;
       let end_i = start_i + self.d_;
-      println!("start_i, end_i: {} {}", start_i, end_i);
+      // println!("start_i, end_i: {} {}", start_i, end_i);
 
       let subvectors: Vec<P> = self.vectors.iter().map(|p| {
         // println!("p.to_f32_vec()[start_i..end_i].to_vec() {:?}", p.to_f32_vec()[start_i..end_i].to_vec());
