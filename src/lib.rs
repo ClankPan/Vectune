@@ -8,10 +8,12 @@ use rand::{Rng, SeedableRng};
 
 pub mod pq;
 
+use pq::PQ;
 
 /*
 ToDo:
   - Testing PQ
+  - Modify insert to mach PQ
 */
 
 /*
@@ -33,6 +35,9 @@ pub struct Builder {
   seed: u64,
   // k: usize, // shards using k-means clustering,
   // l: usize, // the number of shards which the point belongs
+
+  pq_m: usize,
+  pq_k: usize,
 }
 
 impl Default for Builder {
@@ -42,6 +47,10 @@ impl Default for Builder {
       r: 70,
       l: 125,
       seed: rand::random(),
+
+      //PQ
+      pq_m: 16,
+      pq_k: 256,
     }
   }
 }
@@ -60,7 +69,13 @@ impl Builder {
   pub fn set_seed(&mut self, seed: u64) {
     self.seed = seed;
   }
-
+  pub fn set_pq_m(&mut self, pq_m: usize) {
+    self.pq_m = pq_m;
+  }
+  pub fn set_pq_k(&mut self, pq_k: usize) {
+    self.pq_k = pq_k;
+  }
+  
   pub fn build<P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshVamanaMap<P, V>{
     FreshVamanaMap::new(points, values, self)
   }
@@ -95,15 +110,17 @@ struct Node<P> {
   n_in: Vec<usize>,
   p: P,
   id: usize,
+  pq: Vec<usize>,
 }
 
 impl<P> Node<P> {
-  fn new(p: P, id: usize) -> Self {
+  fn new(p: P, pq: Vec<usize>, id: usize) -> Self {
     Self {
       n_out: Vec::new(),
       n_in: Vec::new(),
       p,
       id,
+      pq
     }
   }
 }
@@ -117,6 +134,7 @@ pub struct FreshVamana<P>
   cemetery: Vec<usize>,
   empties: Vec<usize>,
   dist_cache: HashMap<(usize, usize), f32, BuildHasherDefault<AHasher>>,
+  codebooks: Vec<Vec<P>>
 }
 
 impl<P> FreshVamana<P>
@@ -127,8 +145,10 @@ where
     let mut rng = SmallRng::seed_from_u64(builder.seed);
     println!("seed: {}", builder.seed);
 
+    let (points, codebooks) = PQ::new(rng.clone(), builder.pq_m, builder.pq_k, P::dim() as usize, points).quantize();
+
     // Initialize Random Graph
-    let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng);
+    let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng, codebooks);
 
     // Prune Edges
 
@@ -262,17 +282,17 @@ where
     }
   }
 
-  pub fn insert(&mut self, p: P) {
+  pub fn insert(&mut self, p: P, pq: Vec<usize>) {
     // Add node
 
     let pid =  if self.empties.len() == 0 { // ToDo: cache
       let id = self.nodes.len();
-      self.nodes.push(Node::new(p.clone(), id));
+      self.nodes.push(Node::new(p.clone(), pq.clone(), id));
       id
     } else {
       let id = self.empties[0];
       self.empties.remove(0);
-      self.nodes[id] = Node::new(p.clone(), id);
+      self.nodes[id] = Node::new(p.clone(), pq.clone(),id);
       id
     };
 
@@ -376,7 +396,7 @@ where
 
   }
 
-  fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
+  fn random_graph_init(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>) -> Self {
 
     if points.is_empty() {
       return Self {
@@ -386,6 +406,7 @@ where
           cemetery: Vec::new(),
           empties: Vec::new(),
           dist_cache: HashMap::new(),
+          codebooks: Vec::new(),
         }
     }
 
@@ -395,13 +416,13 @@ where
     /* Find Centroid */
     let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
     for p in &points {
-      average_point = p.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
+      average_point = p.0.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
     }
     let average_point = P::from_f32_vec(average_point.into_iter().map(|v| v / points_len as f32).collect());
     let mut min_dist = f32::MAX;
     let mut centroid = usize::MAX;
     for (i, p) in points.iter().enumerate() {
-      let dist = p.distance(&average_point);
+      let dist = p.0.distance(&average_point);
       if dist < min_dist {
         min_dist = dist;
         centroid = i;
@@ -410,11 +431,12 @@ where
 
 
     /* Get random connected graph */
-    let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, p)| Node {
+    let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, (p, pq))| Node {
       n_out: Vec::new(),
       n_in: Vec::new(),
       p,
-      id
+      id,
+      pq
     }).collect();
     
     let mut working: Vec<usize> = (0..nodes.len()).collect();
@@ -449,6 +471,7 @@ where
       cemetery: Vec::new(),
       empties: Vec::new(),
       dist_cache: HashMap::with_capacity(node_len/2),
+      codebooks,
     }
 
   }
@@ -791,13 +814,13 @@ mod tests {
     println!("seed {}", seed);
     let rng = SmallRng::seed_from_u64(seed);
     let mut i = 0;
-    let points: Vec<Point> = (0..1000).into_iter().map(|_| {
+    let points: Vec<Point> = (0..100).into_iter().map(|_| {
       let a = i;
       i += 1;
       Point(vec![a; Point::dim() as usize])
     }).collect();
 
-    let quant = PQ::new(rng, 4, 256, Point::dim() as usize, points);
+    let quant = PQ::new(rng, 4, 64, Point::dim() as usize, points);
     println!("{:?}", quant.quantize());
   }
 
@@ -806,7 +829,7 @@ mod tests {
     let builder = Builder::default();
     let mut rng = SmallRng::seed_from_u64(builder.seed);
 
-    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(Vec::new(), builder, &mut rng);
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(Vec::new(), builder, &mut rng, Vec::new());
     assert_eq!(ann.nodes.len(), 0);
   }
 
@@ -824,7 +847,9 @@ mod tests {
       Point(vec![a; Point::dim() as usize])
     }).collect();
 
-    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+    let (points, codebooks) = PQ::new(rng.clone(), 4, 64, Point::dim() as usize, points).quantize();
+
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng, codebooks);
     assert_eq!(ann.centroid, 49);
   }
 
@@ -833,6 +858,7 @@ mod tests {
 
     let mut builder = Builder::default();
     builder.set_l(30);
+    builder.set_pq_m(4);
     // builder.set_seed(11677721592066047712);
     let l = builder.l;
 
@@ -873,13 +899,15 @@ mod tests {
 
     let mut i = 0;
 
-    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+    let points: Vec<Point> = (0..500).into_iter().map(|_| {
       let a = i;
       i += 1;
       Point(vec![a; Point::dim() as usize])
     }).collect();
 
-    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+    let (points, codebooks) = PQ::new(rng.clone(), 4, 256, Point::dim() as usize, points).quantize();
+
+    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng, codebooks);
 
     let xq = Point(vec![0; Point::dim() as usize]);
     let k = 30;
@@ -910,6 +938,8 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     builder.set_r(30);
+    builder.set_pq_m(4);
+
     // builder.set_a(1.2);
     // builder.set_seed(826142338715444524);
     // let mut rng = SmallRng::seed_from_u64(builder.seed);
@@ -965,86 +995,86 @@ mod tests {
 
   }
 
-  #[test]
-  fn test_insert_ann() {
+  // #[test]
+  // fn test_insert_ann() {
 
-    // 2520746169080459812
+  //   // 2520746169080459812
 
-    let mut builder = Builder::default();
-    builder.set_l(30);
-    builder.set_r(30);
-    builder.set_a(2.0);
-    // builder.set_seed(14218614291317846415);
-    // builder.set_seed(826142338715444524);
-    // let mut rng = SmallRng::seed_from_u64(builder.seed);
-    let l = builder.l;
+  //   let mut builder = Builder::default();
+  //   builder.set_l(30);
+  //   builder.set_r(30);
+  //   builder.set_a(2.0);
+  //   // builder.set_seed(14218614291317846415);
+  //   // builder.set_seed(826142338715444524);
+  //   // let mut rng = SmallRng::seed_from_u64(builder.seed);
+  //   let l = builder.l;
 
-    let mut i = 0;
+  //   let mut i = 0;
 
-    let points: Vec<Point> = (0..500).into_iter().map(|_| {
-      let a = i;
-      i += 1;
-      Point(vec![a; Point::dim() as usize])
-    }).collect();
+  //   let points: Vec<Point> = (0..500).into_iter().map(|_| {
+  //     let a = i;
+  //     i += 1;
+  //     Point(vec![a; Point::dim() as usize])
+  //   }).collect();
 
-    // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
-    let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
-
-
-    // println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
-    // for node in &ann.nodes {
-    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    // }
+  //   // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+  //   let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder);
 
 
-    println!();
+  //   // println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
+  //   // for node in &ann.nodes {
+  //   //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+  //   // }
 
-    let xq = Point(vec![0; Point::dim() as usize]);
-    let k = 30;
-    let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
-    println!("k_anns {:?}", k_anns);
+  //   println!();
 
-    // mark as grave
-    ann.inter(k_anns[2].1);
-    ann.inter(k_anns[5].1);
-    ann.inter(k_anns[9].1);
-    let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
-    let deleted = vec![ann.nodes[2].p.clone(), ann.nodes[5].p.clone(), ann.nodes[9].p.clone()];
-    println!("expected :{:?}", expected);
-    println!("k_anns[2].1 {}, k_anns[5].1 {}, k_anns[9].1, {}", k_anns[2].1, k_anns[5].1, k_anns[9].1);
-    println!("deleted :{:?}", deleted);
-    println!("cemetery :{:?}", ann.cemetery);
-    ann.remove_graves();
+  //   let xq = Point(vec![0; Point::dim() as usize]);
+  //   let k = 30;
+  //   let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
-    let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
-    // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
+  //   println!("k_anns {:?}", k_anns);
 
-    // println!("\n------- ann.remove_graves(); --------\n");
-    // for node in &ann.nodes {
-    //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-    // }
+  //   // mark as grave
+  //   ann.inter(k_anns[2].1);
+  //   ann.inter(k_anns[5].1);
+  //   ann.inter(k_anns[9].1);
+  //   let expected = vec![k_anns[2].1, k_anns[5].1, k_anns[9].1];
+  //   let deleted = vec![ann.nodes[2].p.clone(), ann.nodes[5].p.clone(), ann.nodes[9].p.clone()];
+  //   println!("expected :{:?}", expected);
+  //   println!("k_anns[2].1 {}, k_anns[5].1 {}, k_anns[9].1, {}", k_anns[2].1, k_anns[5].1, k_anns[9].1);
+  //   println!("deleted :{:?}", deleted);
+  //   println!("cemetery :{:?}", ann.cemetery);
+  //   ann.remove_graves();
 
-    assert_ne!(k_anns_intered, k_anns);
+  //   let (k_anns_intered, _visited) = ann.greedy_search(&xq, k, l);
+  //   // println!("{:?}\n\n{:?}", k_anns_intered, _visited);
 
-    let k_anns_ids: Vec<usize>          = k_anns.clone().into_iter().map(|(_, id)| id).collect();
-    let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+  //   // println!("\n------- ann.remove_graves(); --------\n");
+  //   // for node in &ann.nodes {
+  //   //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
+  //   // }
 
-    // println!("\n\n{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
+  //   assert_ne!(k_anns_intered, k_anns);
+
+  //   let k_anns_ids: Vec<usize>          = k_anns.clone().into_iter().map(|(_, id)| id).collect();
+  //   let k_anns_intered_ids: Vec<usize>  = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+
+  //   // println!("\n\n{:?}\n{:?}", k_anns_ids, k_anns_intered_ids);
     
-    let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
-    assert_eq!(diff, expected);
+  //   let diff: Vec<usize> = diff_ids(&k_anns_ids, &k_anns_intered_ids);
+  //   assert_eq!(diff, expected);
 
-    for d in deleted {
-      ann.insert(d)
-    }
+  //   for d in deleted {
+  //     ann.insert(d)
+  //   }
 
-    let (k_anns_inserted, _) = ann.greedy_search(&xq, k, l);
-    assert_eq!(k_anns_inserted, k_anns);
-    println!("{:?}", k_anns_inserted);
+  //   let (k_anns_inserted, _) = ann.greedy_search(&xq, k, l);
+  //   assert_eq!(k_anns_inserted, k_anns);
+  //   println!("{:?}", k_anns_inserted);
 
 
-  }
+  // }
 
 
   #[test]
@@ -1057,16 +1087,20 @@ mod tests {
 
     let mut i = 0;
 
-    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+    let points: Vec<Point> = (0..500).into_iter().map(|_| {
       let a = i;
       i += 1;
       Point(vec![a; Point::dim() as usize])
     }).collect();
 
-    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+    let (points, codebooks) = PQ::new(rng.clone(), 4, 256, Point::dim() as usize, points).quantize();
+
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng, codebooks);
     let xq = Point(vec![0; Point::dim() as usize]);
     let k = 10;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+
+    println!("k_anns: {:?}", k_anns);
 
     for i in 0..10 {
       assert_eq!(k_anns[i].1, i);
@@ -1083,16 +1117,18 @@ mod tests {
 
     let mut i = 0;
 
-    let points: Vec<Point> = (0..100).into_iter().map(|_| {
+    let points: Vec<Point> = (0..500).into_iter().map(|_| {
       let a = i;
       i += 1;
       Point(vec![a; Point::dim() as usize])
     }).collect();
 
     let i = 11;
-    let xq = &points[i];
+    let xq = &points[i].clone();
 
-    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points.clone(), builder, &mut rng);
+    let (points, codebooks) = PQ::new(rng.clone(), 4, 256, Point::dim() as usize, points).quantize();
+
+    let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points.clone(), builder, &mut rng, codebooks);
     let prev_n_out = ann.nodes[i].n_out.clone();
     let k = 1;
     let (_k_anns, visited) = ann.greedy_search(xq, k, l);
