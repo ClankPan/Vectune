@@ -14,6 +14,8 @@ use pq::PQ;
 ToDo:
   - Testing PQ
   - Modify insert to mach PQ
+
+  - PQを使ったGreedySearchで、Noutの検索にはPQを使って、RobustPruneではoriginalを使うように変える。
 */
 
 /*
@@ -218,13 +220,14 @@ where
   }
 
   fn para_indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
-    let ann_fix = ann.clone();
+    let mut ann_fix = ann.clone();
 
     for (count, (_, i)) in shuffled.iter().enumerate() {
 
 
       let i = *i;
-      let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[i].p, 1, ann_fix.builder.l);
+      // let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[i].p, 1, ann_fix.builder.l);
+      let (_, visited) = ann_fix.greedy_search_pq(i, 1, ann_fix.builder.l);
 
       // println!("visiting phase, id : {}\t/{} visited len: {}", count, ann.nodes.len(), visited.len());
 
@@ -473,6 +476,77 @@ where
       dist_cache: HashMap::with_capacity(node_len/2),
       codebooks,
     }
+
+  }
+
+
+  fn pq_distance(&self, a: usize, b: usize) -> f32 {
+    let mut dist = 0.0;
+    for i in 0..self.builder.pq_m {
+      let point_a = &self.codebooks[i][self.nodes[a].pq[i]];
+      let point_b = &self.codebooks[i][self.nodes[b].pq[i]];
+      dist += point_a.distance(&point_b);
+    }
+    dist
+  }
+
+  fn greedy_search_pq(&mut self, xq: usize, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) { // k-anns, visited
+    assert!(l >= k);
+
+
+    let s = self.centroid;
+    let mut visited: Vec<(f32, usize)> = Vec::new();
+    // let mut list: Vec<(f32, usize)> = vec![(self.nodes[s].p.distance(xq), s)];
+    let mut list: Vec<(f32, usize)> = vec![(self.pq_distance(s, xq), s)];
+
+    // `working` is a list of unexplored candidates
+    let mut working = list.clone(); // Because list\visited == list at beginning
+    while working.len() > 0 {
+
+      // let p∗ ← arg minp∈L\V ||xp − xq||
+      let nearest = find_nearest(&mut working);
+
+
+      // ToDo: refactoring, use union_dist insted 
+      if is_contained_in(&nearest.1, &visited) {
+        continue;
+      } else {
+        let original_dist = self.node_distance(nearest.1, xq);
+        insert_dist((original_dist, nearest.1), &mut visited); // insert original dist , not quantized 
+      }
+
+      // If the node is marked as grave, remove from result list. But Its neighboring nodes are explored.
+      if self.cemetery.contains(&nearest.1) {
+        remove_from(&nearest, &mut list);
+        // remove_from_v1(&nearest.1, &mut list)
+      }
+
+
+      // update L ← L ∪ Nout(p∗) andV ← V ∪ {p∗}
+      for out_i in &self.nodes[nearest.1].n_out {
+        let out_i_point = &self.nodes[*out_i].p;
+
+        if is_contained_in(out_i, &list) || is_contained_in(out_i, &visited) { // Should check visited as grave point is in visited but not in list.
+          continue;
+        }
+
+        let quantized_dist =  self.pq_distance(xq, *out_i); // xq.distance(out_i_point);
+        // list.push((dist, node_i));
+        insert_dist((quantized_dist, *out_i), &mut list);
+      }
+
+      if list.len() > l {
+        sort_and_resize(&mut list, l)
+      }
+
+      working = set_diff(list.clone(), &visited);
+
+    }
+
+    sort_and_resize(&mut list, k);
+    let k_anns = list;
+
+    (k_anns, visited)
 
   }
 
