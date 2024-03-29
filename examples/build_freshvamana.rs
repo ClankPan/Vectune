@@ -56,7 +56,10 @@ impl VamanaPoint for Point {
     fn distance(&self, other: &Self) -> f32 {
         self.0.iter()
           .zip(other.0.iter())
-          .map(|(a, b)| (a - b).powi(2))
+          .map(|(a, b)|{
+            let c = a - b;
+            c * c
+          })
           .sum::<f32>()
           // .sqrt()
     }

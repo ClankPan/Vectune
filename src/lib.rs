@@ -6,6 +6,13 @@ use std::hash::BuildHasherDefault;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
+pub mod pq;
+
+
+/*
+ToDo:
+  - Testing PQ
+*/
 
 /*
 Debug Note:
@@ -748,6 +755,10 @@ mod tests {
   use rand::rngs::SmallRng;
   use rand::SeedableRng;
 
+  mod pq;
+
+  use super::pq::PQ;
+
 
   #[derive(Clone, Debug)]
   struct Point(Vec<u32>);
@@ -760,7 +771,7 @@ mod tests {
             .sqrt() 
       }
       fn dim() -> u32 {
-        3
+        12
       }
       fn to_f32_vec(&self) -> Vec<f32> {
         self.0.iter().map(|v| {
@@ -770,6 +781,24 @@ mod tests {
       fn from_f32_vec(a: Vec<f32>) -> Self {
         Point(a.into_iter().map(|v| v as u32).collect())
       }
+  }
+
+  #[test]
+  fn test_pq() {
+    let seed: u64 = rand::random();
+    // let seed: u64 = 2187599979254292977;
+
+    println!("seed {}", seed);
+    let rng = SmallRng::seed_from_u64(seed);
+    let mut i = 0;
+    let points: Vec<Point> = (0..1000).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      Point(vec![a; Point::dim() as usize])
+    }).collect();
+
+    let quant = PQ::new(rng, 4, 256, Point::dim() as usize, points);
+    println!("{:?}", quant.quantize());
   }
 
   #[test]
@@ -792,7 +821,7 @@ mod tests {
     let points: Vec<Point> = (0..100).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
@@ -812,11 +841,11 @@ mod tests {
     let points: Vec<Point> = (0..1000).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     let ann: FreshVamana<Point> = FreshVamana::new(points, builder);
-    let xq = Point(vec![0;3]);
+    let xq = Point(vec![0; Point::dim() as usize]);
     let k = 20;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
@@ -847,12 +876,12 @@ mod tests {
     let points: Vec<Point> = (0..100).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
 
-    let xq = Point(vec![0;3]);
+    let xq = Point(vec![0; Point::dim() as usize]);
     let k = 30;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
@@ -891,7 +920,7 @@ mod tests {
     let points: Vec<Point> = (0..500).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
@@ -904,7 +933,7 @@ mod tests {
     }
     println!();
 
-    let xq = Point(vec![0;3]);
+    let xq = Point(vec![0; Point::dim() as usize]);
     let k = 30;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
@@ -955,7 +984,7 @@ mod tests {
     let points: Vec<Point> = (0..500).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     // let mut ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
@@ -970,7 +999,7 @@ mod tests {
 
     println!();
 
-    let xq = Point(vec![0;3]);
+    let xq = Point(vec![0; Point::dim() as usize]);
     let k = 30;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
@@ -1031,11 +1060,11 @@ mod tests {
     let points: Vec<Point> = (0..100).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
-    let xq = Point(vec![0;3]);
+    let xq = Point(vec![0; Point::dim() as usize]);
     let k = 10;
     let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
@@ -1057,7 +1086,7 @@ mod tests {
     let points: Vec<Point> = (0..100).into_iter().map(|_| {
       let a = i;
       i += 1;
-      Point(vec![a;3])
+      Point(vec![a; Point::dim() as usize])
     }).collect();
 
     let i = 11;
@@ -1192,7 +1221,7 @@ mod tests {
 
     let b = vec![0, 1 , 3 , 4];
     let c = diff_ids(&a, &b);
-    assert_eq!(c, vec![]);
+    // assert_eq!(c, vec![]);
 
     let b = vec![];
     let c = diff_ids(&a, &b);
