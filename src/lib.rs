@@ -6,10 +6,9 @@ use std::time::Instant;
 
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use rand::seq::SliceRandom;
 
 pub mod pq;
-
-use pq::PQ;
 
 /*
 ToDo:
@@ -28,6 +27,12 @@ Debug Note:
 Note API
   - Prepare insert and union separately as api.　
     The insert allows duplicates, while the union does not insert if the file already exists.
+
+  このリポジトリは、VamanaIndexingの高速buildで行うにとどめて、検索は別のlibに譲る。
+  量子化やそれと使った検索はグラフビルドとは独立して行うように。
+  グラフビルド時には量子化は使わない。精度の低下に比べてビルド速度がよくならない可能性。
+  その代わり、並列化とSIMDを多用できるよう設計し直す。
+  グラフのデータ構造は、なるべく簡素に。
 */
 
 #[derive(Clone)]
@@ -170,7 +175,7 @@ where
 
 
     // Initialize Random Graph
-    let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng, codebooks, pq_dist_map);
+    let mut ann = FreshVamana::<P>::random_graph_init_v2(points, builder, &mut rng, codebooks, pq_dist_map);
 
     // Prune Edges
 
@@ -201,6 +206,94 @@ where
 
 
     ann
+  }
+
+  fn random_graph_init_v2(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>, pq_dist_map: HashMap<(usize, usize, usize), f32>) -> Self {
+
+    if points.is_empty() {
+      return Self {
+          nodes: Vec::new(),
+          centroid: usize::MAX,
+          builder,
+          cemetery: Vec::new(),
+          empties: Vec::new(),
+          dist_cache: HashMap::new(),
+          codebooks: Vec::new(),
+          pq_dist_map: HashMap::new(),
+        }
+    }
+
+    assert!(points.len() < u32::MAX as usize);
+    let points_len = points.len();
+
+    /* Find Centroid */
+    let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
+    for p in &points {
+      average_point = p.0.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
+    }
+    let average_point = P::from_f32_vec(average_point.into_iter().map(|v| v / points_len as f32).collect());
+    let mut min_dist = f32::MAX;
+    let mut centroid = usize::MAX;
+    for (i, p) in points.iter().enumerate() {
+      let dist = p.0.distance(&average_point);
+      if dist < min_dist {
+        min_dist = dist;
+        centroid = i;
+      }
+    }
+
+
+    /* Get random connected graph */
+    let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, (p, pq))| Node {
+      n_out: Vec::new(),
+      n_in: Vec::new(),
+      p,
+      id,
+      pq
+    }).collect();
+    
+    let node_len = nodes.len();
+
+    let r_size = builder.r;
+
+    let mut shuffle_node_ids = (0..node_len).collect::<Vec<_>>();
+
+    let shuffle_node_ids_duplicated_r_times: Vec<usize> = (0..r_size).into_iter().map(|_| {
+      shuffle_node_ids.shuffle(rng);
+      shuffle_node_ids.clone()
+    }).flatten().collect();
+
+    shuffle_node_ids.shuffle(rng);
+
+    for (i, node_i) in shuffle_node_ids.into_iter().enumerate() {
+      let mut new_n_out = shuffle_node_ids_duplicated_r_times[i..i+r_size].to_vec();
+      new_n_out.sort();
+      new_n_out.dedup();
+
+      for out_i in &new_n_out {
+        insert_id(node_i, &mut nodes[*out_i].n_in);
+      }
+
+      nodes[node_i].n_out = new_n_out;
+
+    }
+
+    for (id, node) in nodes.iter().enumerate() {
+      println!("id: {}, len: {}, n_out: {:?}", id, node.n_out.len(), node.n_out);
+    }
+
+    let node_len = nodes.len();
+    Self {
+      nodes,
+      centroid,
+      builder,
+      cemetery: Vec::new(),
+      empties: Vec::new(),
+      dist_cache: HashMap::with_capacity(node_len/2),
+      codebooks,
+      pq_dist_map,
+    }
+
   }
 
 
@@ -625,7 +718,7 @@ where
       }
 
 
-      // update L ← L ∪ Nout(p∗) andV ← V ∪ {p∗}
+      // update L ← L ∪ Nout(p∗) and V ← V ∪ {p∗}
       for out_i in &self.nodes[nearest.1].n_out {
         let out_i_point = &self.nodes[*out_i].p;
 
@@ -946,6 +1039,37 @@ mod tests {
   }
 
   #[test]
+  fn test_random_init_v2() {
+    let builder = Builder::default();
+    // let seed = builder.seed;
+    let seed: u64 = 11923543545843533243;
+    let mut rng = SmallRng::seed_from_u64(seed);
+    println!("seed: {}", seed);
+
+    let mut i = 0;
+
+    let points: Vec<(Point, Vec<usize>)> = (0..100).into_iter().map(|_| {
+      let a = i;
+      i += 1;
+      (Point(vec![a; Point::dim() as usize]), vec![])
+    }).collect();
+
+    let point_len = points.len();
+
+    let ann: FreshVamana<Point> = FreshVamana::random_graph_init_v2(points, builder, &mut rng, Vec::new(), HashMap::new());
+    
+    for node_i in 0..point_len {
+      for out_i in &ann.nodes[node_i].n_out {
+        assert!(ann.nodes[*out_i].n_in.contains(&node_i))
+      }
+      for in_i in &ann.nodes[node_i].n_in {
+        assert!(ann.nodes[*in_i].n_out.contains(&node_i))
+      }
+    }
+
+  }
+
+  #[test]
   fn fresh_disk_ann_new_empty() {
     let builder = Builder::default();
     let mut rng = SmallRng::seed_from_u64(builder.seed);
@@ -1204,8 +1328,8 @@ mod tests {
     let mut builder = Builder::default();
     builder.set_l(30);
     println!("seed: {}", builder.seed);
-    // let seed = builder.seed;
-    let seed: u64 = 6752150918298254033;
+    let seed = builder.seed;
+    // let seed: u64 = 6752150918298254033;
     let mut rng = SmallRng::seed_from_u64(seed);
     let l = builder.l;
 
