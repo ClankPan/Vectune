@@ -1,5 +1,6 @@
 // use std::collections::HashMap;
 use hashbrown::HashMap;
+
 use ahash::AHasher;
 use std::hash::{BuildHasherDefault, Hash};
 use std::time::Instant;
@@ -7,6 +8,10 @@ use std::time::Instant;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand::seq::SliceRandom;
+
+use itertools::Itertools;
+
+use rayon::prelude::*;
 
 pub mod pq;
 
@@ -175,7 +180,10 @@ where
 
 
     // Initialize Random Graph
+    println!("rand init phase");
+    let start_time = Instant::now();
     let mut ann = FreshVamana::<P>::random_graph_init_v2(points, builder, &mut rng, codebooks, pq_dist_map);
+    println!("\nrand init time: {:?}", Instant::now().duration_since(start_time));
 
     // Prune Edges
 
@@ -278,9 +286,9 @@ where
 
     }
 
-    for (id, node) in nodes.iter().enumerate() {
-      println!("id: {}, len: {}, n_out: {:?}", id, node.n_out.len(), node.n_out);
-    }
+    // for (id, node) in nodes.iter().enumerate() {
+    //   println!("id: {}, len: {}, n_out: {:?}", id, node.n_out.len(), node.n_out);
+    // }
 
     let node_len = nodes.len();
     Self {
@@ -418,7 +426,116 @@ where
   }
 
   fn para_indexing(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
-    let mut ann_fix = ann.clone();
+    /*
+    Note:
+      n_inは最後に追加すればいいので、並列ループないでは追加しない。依存性をなくすため。
+      Noutを最終的にマージするように。
+    */
+
+
+    let ann_fix = ann.clone();
+
+    let start_time =  Instant::now();
+
+    let mut all_edges: Vec<(usize, usize)> = shuffled.into_par_iter().enumerate().map(|(count, (_, node_i))| {
+
+      let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[node_i].p, 1, ann_fix.builder.l);
+
+      if count % 5000 == 0 {
+        println!("visiting phase, id : {}\t/{} visited len: {} passed time: {:?}", count, ann.nodes.len(), visited.len(), Instant::now().duration_since(start_time));
+      }
+
+      // Joint visited ids and current n_out ids
+      let mut out_ids: Vec<usize> = visited.into_iter().map(|(_, id)| id).collect(); // ToDo: reuse dist
+      out_ids.extend(ann_fix.nodes[node_i].n_out.iter().map(|out_i| *out_i));
+      out_ids.sort();
+      out_ids.dedup();
+      
+
+      // Make edges: all out_i ids has backlinks.
+      let mut edges: Vec<(usize, usize)> = out_ids.clone().into_iter().map(|out_i| (node_i, out_i)).collect();
+      edges.extend(out_ids.into_iter().map(|from_i| (from_i, node_i)));
+
+      edges
+    }).flatten().collect();
+    println!("\nvisiting time: {:?}", Instant::now().duration_since(start_time));
+
+
+    let start_time = Instant::now();
+    all_edges.sort();
+    all_edges.dedup();
+    let groups: Vec<(usize, Vec<usize>)> = all_edges
+      .into_iter()
+      .group_by(|&(first, _)| first)
+      .into_iter()
+      .map(|(key, group)| (key, group.map(|(_, i)| i).collect()))
+      .collect();
+
+    println!("\ngrouping time: {:?}", Instant::now().duration_since(start_time));
+
+    let start_time =  Instant::now();
+    let pruned_edges: Vec<(usize, Vec<usize>)> = groups.into_par_iter().map(|(node_i, n_out)| {
+
+        if node_i % 5000 == 0 {
+          println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
+        }
+
+      let mut candidates: Vec<(f32, usize)> = n_out.into_iter().map(|out_i| {
+        let node_i_point =  &ann.nodes[node_i].p;
+        let out_i_point = &ann.nodes[out_i].p;
+        let dist = node_i_point.distance(out_i_point);
+        (dist, out_i)
+      }).collect();
+      sort_list_by_dist(&mut candidates);
+
+      // V ← (V ∪ Nout(p)) \ {p}
+      remove_from(&(0.0, node_i), &mut candidates);
+
+      let mut n_out = vec![];
+
+      while let Some((first, rest)) = candidates.split_first() {
+        let (_, pa) = first.clone(); // pa is p asterisk (p*), which is nearest point to p in this loop
+        n_out.push(pa);
+
+        if n_out.len() == ann.builder.r {
+          break;
+        }
+        candidates = rest.to_vec();
+
+        // if α · d(p*, p') <= d(p, p') then remove p' from v
+        candidates.retain(|&(dist_xp_pd, pd)| {
+          let pa_point =  &ann.nodes[pa].p;
+          let pd_point = &ann.nodes[pd].p;
+          let dist_pa_pd = pa_point.distance(pd_point);
+
+          ann.builder.a * dist_pa_pd > dist_xp_pd
+        })
+      }
+
+      (node_i, n_out)
+
+    }).collect();
+
+    for (from_i, to_ids) in pruned_edges {
+      for to_i in to_ids {
+        insert_id(to_i, &mut ann.nodes[from_i].n_out);
+        insert_id(from_i, &mut ann.nodes[to_i].n_in);
+      }
+    }
+
+    println!("\nrobust pruning time: {:?}", Instant::now().duration_since(start_time));
+
+  }
+
+  fn para_indexing_v1(ann: &mut FreshVamana<P>, shuffled: Vec<(usize, usize)>) {
+    /*
+    Note:
+      n_inは最後に追加すればいいので、並列ループないでは追加しない。依存性をなくすため。
+      Noutを最終的にマージするように。
+    */
+
+
+    let ann_fix = ann.clone();
 
     let start_time =  Instant::now();
 
@@ -448,6 +565,13 @@ where
         insert_id(j, &mut ann.nodes[i].n_in);
 
       }
+
+      /*
+      Note:
+      Noutとvisitedを結合する。
+      それらを相互リンクする。
+      
+      */
     }
 
     println!("\nvisiting time: {:?}", Instant::now().duration_since(start_time));
