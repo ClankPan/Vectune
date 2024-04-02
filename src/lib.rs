@@ -1,8 +1,9 @@
 // use std::collections::HashMap;
-use hashbrown::HashMap;
+// use hashbrown::HashMap;
 
 use ahash::AHasher;
-use std::hash::{BuildHasherDefault, Hash};
+// use std::hash::{BuildHasherDefault, Hash};
+use std::collections::HashMap;
 use std::time::Instant;
 
 use rand::rngs::SmallRng;
@@ -10,10 +11,13 @@ use rand::{Rng, SeedableRng};
 use rand::seq::SliceRandom;
 
 use itertools::Itertools;
-
 use rayon::prelude::*;
+use serde::{Serialize, Deserialize};
 
 pub mod pq;
+pub mod kmeans;
+
+use kmeans::KMeans;
 
 /*
 ToDo:
@@ -40,11 +44,11 @@ Note API
   グラフのデータ構造は、なるべく簡素に。
 */
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Builder {
   a: f32,
   r: usize,
-  l: usize,
+  pub l: usize,
   seed: u64,
   // k: usize, // shards using k-means clustering,
   // l: usize, // the number of shards which the point belongs
@@ -95,9 +99,9 @@ impl Builder {
 }
 
 
-
+#[derive(Serialize, Deserialize)]
 pub struct FreshVamanaMap<P, V> {
-  ann: FreshVamana<P>,
+  pub ann: FreshVamana<P>,
   values: Vec<V>,
 }
 
@@ -117,7 +121,7 @@ where
   }
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Node<P> {
   n_out: Vec<usize>, // has pointer. ToDo: should use PQ to resuce memory accesses.
   n_in: Vec<usize>,
@@ -138,17 +142,17 @@ impl<P> Node<P> {
   }
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FreshVamana<P>
 {
   nodes: Vec<Node<P>>,
   centroid: usize,
-  builder: Builder,
+  pub builder: Builder,
   cemetery: Vec<usize>,
   empties: Vec<usize>,
-  dist_cache: HashMap<(usize, usize), f32, BuildHasherDefault<AHasher>>,
+  dist_cache: HashMap<(usize, usize), f32>,
   codebooks: Vec<Vec<P>>,
-  pq_dist_map: HashMap<(usize, usize, usize), f32, BuildHasherDefault<AHasher>>,
+  pq_dist_map: HashMap<(usize, usize, usize), f32>,
 }
 
 impl<P> FreshVamana<P>
@@ -182,7 +186,7 @@ where
     // Initialize Random Graph
     println!("rand init phase");
     let start_time = Instant::now();
-    let mut ann = FreshVamana::<P>::random_graph_init_v2(points, builder, &mut rng, codebooks, pq_dist_map);
+    let mut ann = FreshVamana::<P>::random_graph_init_v3(points, builder, &mut rng, codebooks, pq_dist_map);
     println!("\nrand init time: {:?}", Instant::now().duration_since(start_time));
 
     // Prune Edges
@@ -216,6 +220,147 @@ where
     ann
   }
 
+  fn random_graph_init_v3(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>, pq_dist_map: HashMap<(usize, usize, usize), f32>) -> Self {
+
+    if points.is_empty() {
+      return Self {
+          nodes: Vec::new(),
+          centroid: usize::MAX,
+          builder,
+          cemetery: Vec::new(),
+          empties: Vec::new(),
+          dist_cache: HashMap::new(),
+          codebooks: Vec::new(),
+          pq_dist_map: HashMap::new(),
+        }
+    }
+
+    assert!(points.len() < u32::MAX as usize);
+    let points_len = points.len();
+
+    /* Find Centroid */
+    let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
+    for p in &points {
+      average_point = p.0.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
+    }
+    let average_point = P::from_f32_vec(average_point.into_iter().map(|v| v / points_len as f32).collect());
+    let mut min_dist = f32::MAX;
+    let mut centroid = usize::MAX;
+    for (i, p) in points.iter().enumerate() {
+      let dist = p.0.distance(&average_point);
+      if dist < min_dist {
+        min_dist = dist;
+        centroid = i;
+      }
+    }
+
+
+    /* Get random connected graph */
+    let mut nodes: Vec<Node<P>> = points.clone().into_iter().enumerate().map(|(id, (p, pq))| Node {
+      n_out: Vec::new(),
+      n_in: Vec::new(),
+      p,
+      id,
+      pq
+    }).collect();
+
+    let node_len = nodes.len();
+    let r_size = builder.r;
+
+    /* Clustering */
+    let mut shard_num = 2;
+    if points_len > 50_000 {
+      shard_num += points_len / 50_000;
+    }
+
+    println!("shard_num: {}", shard_num);
+
+    let mut kmeans: KMeans<P> = KMeans::new(rng.clone(), shard_num, 100, points.into_iter().map(|(p, _)| p).collect());
+    println!(" kmeans.kmeans_pp_centroids()...");
+    let initial_centorids = kmeans.kmeans_pp_centroids();
+    println!(" kmeans.calculate(initial_centorids)...");
+    let (shards, _) = kmeans.calculate(initial_centorids);
+    // println!("kmeans.calculate shard len: {:?}", shards);
+    println!(" making shards...");
+    let mut shards: Vec<(usize, usize)> = shards
+      .into_iter()
+      .enumerate()
+      .map(|(node_i, cluster_id)| (cluster_id, node_i))
+      .collect();
+    shards.sort();
+    // for shard in &shards {
+    //   println!("each shard len: {:?}", shard);
+    // }
+    println!("shuffled shard len: {}", shards.len());
+
+    let shards: Vec<Vec<usize>> = shards
+      .into_iter()
+      .group_by(|&(first, _)| first)
+      .into_iter()
+      .map(|(_key, group)| group.map(|(_, i)| i).collect())
+      .collect();
+
+    for shard in &shards {
+      println!("each shard len: {}", shard.len());
+    }
+
+    /* Random initialization with cluster priority */
+    println!(" Random initialization...");
+    let shuffled_node_ids = (0..node_len).collect::<Vec<_>>();
+    let mut shuffled_node_ids: Vec<usize> = (0..(r_size/3)+1).into_iter().map(|_| shuffled_node_ids.clone()).flatten().collect();
+    shuffled_node_ids.shuffle(rng);
+
+    println!(" Iter shards...");
+    for (shard_i, shard) in shards.iter().enumerate() {
+      let start_idx = shard_i * r_size/3;
+      let end_idx = start_idx + r_size/3;
+      let other_shard_nodes = &shuffled_node_ids[start_idx..end_idx];
+      
+      let mut candidates: Vec<usize> = (0..(2*r_size/3)+1).into_iter().map(|_| shard.clone()).flatten().collect();
+      candidates.extend(other_shard_nodes.iter()); // ここを直す？
+      candidates.shuffle(rng);
+
+      let shard_len = shard.len();
+
+      println!("shard len: {}, candidates len: {}, (0..(2*r_size/3)+1) len: {}", shard_len, candidates.len(), (0..(2*r_size/3)+1).len());
+
+      for (i, node_i) in shard.into_iter().enumerate() {
+        let start = i*r_size % candidates.len();
+        // println!("start idx {}", start);
+        let end = if start + r_size > candidates.len() {
+          candidates.len()
+        } else {
+          start + r_size
+        };
+        let mut new_n_out = candidates[start..end].to_vec();
+        new_n_out.sort();
+        new_n_out.dedup();
+  
+        for out_i in &new_n_out {
+          insert_id(*node_i, &mut nodes[*out_i].n_in);
+        }
+  
+        nodes[*node_i].n_out = new_n_out;
+      }
+
+      // for rest_i in candidates[]
+      // wip 残ったやつを割り振る。
+    }
+
+    let node_len = nodes.len();
+    Self {
+      nodes,
+      centroid,
+      builder,
+      cemetery: Vec::new(),
+      empties: Vec::new(),
+      dist_cache: HashMap::with_capacity(node_len/2),
+      codebooks,
+      pq_dist_map,
+    }
+
+  }
+
   fn random_graph_init_v2(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>, pq_dist_map: HashMap<(usize, usize, usize), f32>) -> Self {
 
     if points.is_empty() {
@@ -233,6 +378,12 @@ where
 
     assert!(points.len() < u32::MAX as usize);
     let points_len = points.len();
+
+    let mut shard_num = 1;
+
+    if points_len > 100_000 {
+      shard_num += (points_len - 1) / 100_000;
+    }
 
     /* Find Centroid */
     let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
@@ -441,7 +592,7 @@ where
 
       let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[node_i].p, 1, ann_fix.builder.l);
 
-      if count % 5000 == 0 {
+      if count % 10000 == 0 {
         println!("visiting phase, id : {}\t/{} visited len: {} passed time: {:?}", count, ann.nodes.len(), visited.len(), Instant::now().duration_since(start_time));
       }
 
@@ -476,9 +627,9 @@ where
     let start_time =  Instant::now();
     let pruned_edges: Vec<(usize, Vec<usize>)> = groups.into_par_iter().map(|(node_i, n_out)| {
 
-        if node_i % 5000 == 0 {
-          println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
-        }
+      if node_i % 10000 == 0 {
+        println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
+      }
 
       let mut candidates: Vec<(f32, usize)> = n_out.into_iter().map(|out_i| {
         let node_i_point =  &ann.nodes[node_i].p;
