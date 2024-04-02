@@ -220,6 +220,161 @@ where
     ann
   }
 
+  fn random_graph_init_v4(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>, pq_dist_map: HashMap<(usize, usize, usize), f32>) -> Self {
+
+    if points.is_empty() {
+      return Self {
+          nodes: Vec::new(),
+          centroid: usize::MAX,
+          builder,
+          cemetery: Vec::new(),
+          empties: Vec::new(),
+          dist_cache: HashMap::new(),
+          codebooks: Vec::new(),
+          pq_dist_map: HashMap::new(),
+        }
+    }
+
+    assert!(points.len() < u32::MAX as usize);
+    let points_len = points.len();
+
+    /* Find Centroid */
+    let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
+    for p in &points {
+      average_point = p.0.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
+    }
+    let average_point = P::from_f32_vec(average_point.into_iter().map(|v| v / points_len as f32).collect());
+    let mut min_dist = f32::MAX;
+    let mut centroid = usize::MAX;
+    for (i, p) in points.iter().enumerate() {
+      let dist = p.0.distance(&average_point);
+      if dist < min_dist {
+        min_dist = dist;
+        centroid = i;
+      }
+    }
+
+
+    /* Get random connected graph */
+    let mut nodes: Vec<Node<P>> = points.clone().into_iter().enumerate().map(|(id, (p, pq))| Node {
+      n_out: Vec::new(),
+      n_in: Vec::new(),
+      p,
+      id,
+      pq
+    }).collect();
+
+    let node_len = nodes.len();
+    let r_size = builder.r;
+
+    /* Clustering */
+    let mut shard_num = 1;
+    if points_len > 25_000 {
+      shard_num += points_len / 25_000;
+    }
+
+    println!("shard_num: {}", shard_num);
+
+    let mut kmeans: KMeans<P> = KMeans::new(rng.clone(), shard_num, 100, points.into_iter().map(|(p, _)| p).collect());
+    println!(" kmeans.kmeans_pp_centroids()...");
+    let initial_centorids = kmeans.kmeans_pp_centroids();
+    println!(" kmeans.calculate(initial_centorids)...");
+    let (shards, cluster_centroids) = kmeans.calculate(initial_centorids);
+    // println!("kmeans.calculate shard len: {:?}", shards);
+    println!(" making shards...");
+    let mut shards: Vec<(usize, usize)> = shards
+      .into_iter()
+      .enumerate()
+      .map(|(node_i, cluster_id)| (cluster_id, node_i))
+      .collect();
+
+    // Duplicate nodes over multi shards
+    let second_shards: Vec<(usize, usize)> = nodes
+      .par_iter()
+      .enumerate()
+      .map(|(node_i, node)| (KMeans::find_second_closest_centroid(&node.p, &cluster_centroids), node_i))
+      .collect();
+    shards.extend(&second_shards);
+
+    shards.sort();
+
+    println!("shuffled shard len: {}", shards.len());
+
+    let shards: Vec<Vec<usize>> = shards
+      .into_iter()
+      .group_by(|&(first, _)| first)
+      .into_iter()
+      .map(|(_key, group)| group.map(|(_, i)| i).collect())
+      .collect();
+
+    for shard in &shards {
+      println!("each shard len: {}", shard.len());
+    }
+
+    /* Random initialization with cluster priority */
+    println!(" Random initialization...");
+    let shuffled_node_ids = (0..node_len).collect::<Vec<_>>();
+    let mut shuffled_node_ids: Vec<usize> = (0..(r_size/3)+1)
+      .into_iter()
+      .map(|_| shuffled_node_ids.clone())
+      .flatten()
+      .collect();
+    shuffled_node_ids.shuffle(rng);
+
+    println!(" Iter shards...");
+    for (_shard_i, shard) in shards.iter().enumerate() {
+
+      /*
+      nodeをiterateして、今できるているgraphを検索して、その近傍ノードと自分とのエッジを追加する。
+      */
+      
+      for node_i in shard {
+
+      }
+
+      // let mut candidates: Vec<usize> = (0..r_size/2).into_iter().map(|_| shard.clone()).flatten().collect();
+      // candidates.shuffle(rng);
+
+      // let shard_len = shard.len();
+
+      // println!("shard len: {}, candidates len: {}", shard_len, candidates.len());
+
+      // for (i, node_i) in shard.into_iter().enumerate() {
+      //   let start = i*r_size % candidates.len();
+      //   // println!("start idx {}", start);
+      //   let end = if start + r_size > candidates.len() {
+      //     candidates.len()
+      //   } else {
+      //     start + r_size
+      //   };
+      //   let mut new_n_out = candidates[start..end].to_vec();
+      //   new_n_out.sort();
+      //   new_n_out.dedup();
+  
+      //   for out_i in &new_n_out {
+      //     insert_id(*node_i, &mut nodes[*out_i].n_in);
+      //   }
+  
+      //   nodes[*node_i].n_out = new_n_out;
+      // }
+
+      // wip 残ったやつを割り振る。
+    }
+
+    let node_len = nodes.len();
+    Self {
+      nodes,
+      centroid,
+      builder,
+      cemetery: Vec::new(),
+      empties: Vec::new(),
+      dist_cache: HashMap::with_capacity(node_len/2),
+      codebooks,
+      pq_dist_map,
+    }
+
+  }
+
   fn random_graph_init_v3(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>, pq_dist_map: HashMap<(usize, usize, usize), f32>) -> Self {
 
     if points.is_empty() {
@@ -268,9 +423,9 @@ where
     let r_size = builder.r;
 
     /* Clustering */
-    let mut shard_num = 2;
-    if points_len > 50_000 {
-      shard_num += points_len / 50_000;
+    let mut shard_num = 1;
+    if points_len > 10_000 {
+      shard_num += points_len / 10_000;
     }
 
     println!("shard_num: {}", shard_num);
@@ -279,7 +434,7 @@ where
     println!(" kmeans.kmeans_pp_centroids()...");
     let initial_centorids = kmeans.kmeans_pp_centroids();
     println!(" kmeans.calculate(initial_centorids)...");
-    let (shards, _) = kmeans.calculate(initial_centorids);
+    let (shards, cluster_centroids) = kmeans.calculate(initial_centorids);
     // println!("kmeans.calculate shard len: {:?}", shards);
     println!(" making shards...");
     let mut shards: Vec<(usize, usize)> = shards
@@ -287,10 +442,17 @@ where
       .enumerate()
       .map(|(node_i, cluster_id)| (cluster_id, node_i))
       .collect();
+
+    // Duplicate nodes over multi shards
+    let second_shards: Vec<(usize, usize)> = nodes
+      .par_iter()
+      .enumerate()
+      .map(|(node_i, node)| (KMeans::find_second_closest_centroid(&node.p, &cluster_centroids), node_i))
+      .collect();
+    shards.extend(&second_shards);
+
     shards.sort();
-    // for shard in &shards {
-    //   println!("each shard len: {:?}", shard);
-    // }
+
     println!("shuffled shard len: {}", shards.len());
 
     let shards: Vec<Vec<usize>> = shards
@@ -307,22 +469,22 @@ where
     /* Random initialization with cluster priority */
     println!(" Random initialization...");
     let shuffled_node_ids = (0..node_len).collect::<Vec<_>>();
-    let mut shuffled_node_ids: Vec<usize> = (0..(r_size/3)+1).into_iter().map(|_| shuffled_node_ids.clone()).flatten().collect();
+    let mut shuffled_node_ids: Vec<usize> = (0..(r_size/3)+1)
+      .into_iter()
+      .map(|_| shuffled_node_ids.clone())
+      .flatten()
+      .collect();
     shuffled_node_ids.shuffle(rng);
 
     println!(" Iter shards...");
-    for (shard_i, shard) in shards.iter().enumerate() {
-      let start_idx = shard_i * r_size/3;
-      let end_idx = start_idx + r_size/3;
-      let other_shard_nodes = &shuffled_node_ids[start_idx..end_idx];
-      
-      let mut candidates: Vec<usize> = (0..(2*r_size/3)+1).into_iter().map(|_| shard.clone()).flatten().collect();
-      candidates.extend(other_shard_nodes.iter()); // ここを直す？
+    for (_shard_i, shard) in shards.iter().enumerate() {
+
+      let mut candidates: Vec<usize> = (0..r_size/2).into_iter().map(|_| shard.clone()).flatten().collect();
       candidates.shuffle(rng);
 
       let shard_len = shard.len();
 
-      println!("shard len: {}, candidates len: {}, (0..(2*r_size/3)+1) len: {}", shard_len, candidates.len(), (0..(2*r_size/3)+1).len());
+      println!("shard len: {}, candidates len: {}", shard_len, candidates.len());
 
       for (i, node_i) in shard.into_iter().enumerate() {
         let start = i*r_size % candidates.len();
@@ -343,7 +505,6 @@ where
         nodes[*node_i].n_out = new_n_out;
       }
 
-      // for rest_i in candidates[]
       // wip 残ったやつを割り振る。
     }
 
@@ -592,9 +753,9 @@ where
 
       let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[node_i].p, 1, ann_fix.builder.l);
 
-      if count % 10000 == 0 {
-        println!("visiting phase, id : {}\t/{} visited len: {} passed time: {:?}", count, ann.nodes.len(), visited.len(), Instant::now().duration_since(start_time));
-      }
+      // if count % 10000 == 0 {
+      //   println!("visiting phase, id : {}\t/{} visited len: {} passed time: {:?}", count, ann.nodes.len(), visited.len(), Instant::now().duration_since(start_time));
+      // }
 
       // Joint visited ids and current n_out ids
       let mut out_ids: Vec<usize> = visited.into_iter().map(|(_, id)| id).collect(); // ToDo: reuse dist
@@ -627,9 +788,9 @@ where
     let start_time =  Instant::now();
     let pruned_edges: Vec<(usize, Vec<usize>)> = groups.into_par_iter().map(|(node_i, n_out)| {
 
-      if node_i % 10000 == 0 {
-        println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
-      }
+      // if node_i % 10000 == 0 {
+      //   println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
+      // }
 
       let mut candidates: Vec<(f32, usize)> = n_out.into_iter().map(|out_i| {
         let node_i_point =  &ann.nodes[node_i].p;

@@ -63,16 +63,10 @@ fn main() {
 
 
   // // Search in FreshVamana
-  let query_vectors = read_fvecs("./test_data/sift/sift_query.fvecs").unwrap();
-  let query_i = rng.gen_range(0..query_vectors.len() as usize);
-  let query = &query_vectors[query_i];
   // println!("searcing vamana...");
   // let vamana_results = vamana_map.search(&Point(query.to_vec()));
   // println!("{:?}\n\n", vamana_results);
 
-
-  let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
-  println!("groundtruth: {:?}", groundtruth[query_i]);
   // println!("results: {:?}", vamana_results.iter().map(|(_, i)|*i).collect::<Vec<usize>>());
 
 
@@ -85,12 +79,36 @@ fn main() {
   let mut contents = String::new();
   file.read_to_string(&mut contents).unwrap();
   let mut deserialized_vamana_map: FreshVamanaMap<Point, usize> = serde_json::from_str(&contents).expect("Failed to deserialize");
-  let vamana_results = deserialized_vamana_map.search(&Point(query.to_vec()));
-  println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results.into_iter().map(|(_, i)|i).collect::<Vec<usize>>());
 
-  deserialized_vamana_map.ann.builder.l = 5000;
-  let vamana_results = deserialized_vamana_map.search(&Point(query.to_vec()));
-  println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results.into_iter().map(|(_, i)|i).collect::<Vec<usize>>());
+  let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
+
+  deserialized_vamana_map.ann.builder.l = 1000;
+
+  let query_vectors = read_fvecs("./test_data/sift/sift_query.fvecs").unwrap();
+
+  let round = 100;
+  let mut hit = 0;
+  // println!("query_vectors len: {:?}", &query_vectors[0..100]);
+  for _ in 0..round {
+    
+    let query_i = rng.gen_range(0..query_vectors.len() as usize);
+    let query = &query_vectors[query_i];
+  
+    let vamana_results = deserialized_vamana_map.search(&Point(query.to_vec()));
+    let top5 = &vamana_results.into_iter().map(|(_, i)|i as i32).collect::<Vec<i32>>()[0..5];
+    let top5_groundtruth = &groundtruth[query_i][0..5];
+    println!("{:?}\n{:?}\n", top5_groundtruth, top5);
+    for res in top5 {
+      if top5_groundtruth.contains(res) {
+        hit += 1;
+      }
+    }
+    // println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results.into_iter().map(|(_, i)|i).collect::<Vec<usize>>());
+  }
+
+  println!("5-recall-rate@5: {}", hit as f32 / (5 * round) as f32);
+  // let vamana_results = deserialized_vamana_map.search(&Point(query.to_vec()));
+  // println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results.into_iter().map(|(_, i)|i).collect::<Vec<usize>>());
 
 
 }

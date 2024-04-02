@@ -59,7 +59,8 @@ fn main() {
   }
 
   println!("building vamana...");
-  let vamana_map: FreshVamanaMap<Point, usize> = VamanaBuilder::default().build(points.clone(), values.clone());
+  let mut vamana_map: FreshVamanaMap<Point, usize> = VamanaBuilder::default().build(points.clone(), values.clone());
+  vamana_map.ann.builder.l = 2000;
 
 
   // Search in FreshVamana

@@ -67,13 +67,26 @@ where
 
   }
 
-  fn find_closest_centroid(point: &P, centroids: &Vec<P>) -> usize {
+  pub fn find_closest_centroid(point: &P, centroids: &Vec<P>) -> usize {
     centroids.iter()
       .enumerate()
       .map(|(index, centroid)| (index, point.distance(centroid)))
       .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
       .map(|(index, _)| index)
       .unwrap()
+  }
+
+  pub fn find_second_closest_centroid(point: &P, centroids: &Vec<P>) -> usize {
+    let mut centroids = centroids
+      .iter()
+      .enumerate()
+      .map(|(index, centroid)| (index, point.distance(centroid)))
+      .collect::<Vec<_>>();
+
+    centroids.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    let (index, _) = centroids[1];
+    index
   }
 
   fn update_centroids(&self, points: &Vec<P>, assignments: &[usize]) -> Vec<P> {
