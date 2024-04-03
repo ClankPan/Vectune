@@ -186,7 +186,7 @@ where
     // Initialize Random Graph
     println!("rand init phase");
     let start_time = Instant::now();
-    let mut ann = FreshVamana::<P>::random_graph_init_v3(points, builder, &mut rng, codebooks, pq_dist_map);
+    let mut ann = FreshVamana::<P>::random_graph_init_v4(points, builder, &mut rng, codebooks, pq_dist_map);
     println!("\nrand init time: {:?}", Instant::now().duration_since(start_time));
 
     // Prune Edges
@@ -324,39 +324,57 @@ where
     println!(" Iter shards...");
     for (_shard_i, shard) in shards.iter().enumerate() {
 
-      /*
-      nodeをiterateして、今できるているgraphを検索して、その近傍ノードと自分とのエッジを追加する。
-      */
-      
-      for node_i in shard {
+      let mut candidates: Vec<usize> = (0..r_size/2).into_iter().map(|_| shard.clone()).flatten().collect();
+      candidates.shuffle(rng);
 
+      let shard_len = shard.len();
+
+      println!("shard len: {}, candidates len: {}", shard_len, candidates.len());
+
+
+      let r_nearest_nodes: Vec<Vec<usize>> = shard
+        .clone()
+        .into_par_iter()
+        .map(|node_i| {
+          let node_p = &nodes[node_i].p;
+          let mut dists: Vec<(f32, usize)> = shard
+            .iter()
+            .map(|other_i|
+              (node_p.distance(&nodes[*other_i].p), *other_i))
+            .collect();
+
+          sort_list_by_dist(&mut dists);
+
+          dists[0..builder.r]
+            .into_iter()
+            .map(|(_, node_i)| *node_i)
+            .collect::<Vec<usize>>()
+
+        })
+        .collect();
+
+      for (i, node_i) in shard.into_iter().enumerate() {
+        let start = i*r_size % candidates.len();
+        // println!("start idx {}", start);
+        let end = if start + r_size > candidates.len() {
+          candidates.len()
+        } else {
+          start + r_size
+        };
+        let mut new_n_out = candidates[start..end].to_vec();
+        new_n_out.sort();
+        new_n_out.dedup();
+  
+        for out_i in &new_n_out {
+          insert_id(*node_i, &mut nodes[*out_i].n_in);
+        }
+
+        for out_i in &r_nearest_nodes[i] {
+          insert_id(*node_i, &mut nodes[*out_i].n_in);
+        }
+  
+        nodes[*node_i].n_out = new_n_out;
       }
-
-      // let mut candidates: Vec<usize> = (0..r_size/2).into_iter().map(|_| shard.clone()).flatten().collect();
-      // candidates.shuffle(rng);
-
-      // let shard_len = shard.len();
-
-      // println!("shard len: {}, candidates len: {}", shard_len, candidates.len());
-
-      // for (i, node_i) in shard.into_iter().enumerate() {
-      //   let start = i*r_size % candidates.len();
-      //   // println!("start idx {}", start);
-      //   let end = if start + r_size > candidates.len() {
-      //     candidates.len()
-      //   } else {
-      //     start + r_size
-      //   };
-      //   let mut new_n_out = candidates[start..end].to_vec();
-      //   new_n_out.sort();
-      //   new_n_out.dedup();
-  
-      //   for out_i in &new_n_out {
-      //     insert_id(*node_i, &mut nodes[*out_i].n_in);
-      //   }
-  
-      //   nodes[*node_i].n_out = new_n_out;
-      // }
 
       // wip 残ったやつを割り振る。
     }
