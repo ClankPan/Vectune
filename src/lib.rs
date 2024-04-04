@@ -1,8 +1,4 @@
-// use std::collections::HashMap;
-// use hashbrown::HashMap;
 
-// use std::hash::{BuildHasherDefault, Hash};
-use std::collections::HashMap;
 use std::time::Instant;
 
 use rand::rngs::SmallRng;
@@ -24,11 +20,6 @@ pub struct Builder {
   r: usize,
   pub l: usize,
   seed: u64,
-  // k: usize, // shards using k-means clustering,
-  // l: usize, // the number of shards which the point belongs
-
-  pq_m: usize,
-  pq_k: usize,
 }
 
 impl Default for Builder {
@@ -38,10 +29,6 @@ impl Default for Builder {
       r: 70,
       l: 125,
       seed: rand::random(),
-
-      //PQ
-      pq_m: 16,
-      pq_k: 256,
     }
   }
 }
@@ -60,13 +47,6 @@ impl Builder {
   pub fn set_seed(&mut self, seed: u64) {
     self.seed = seed;
   }
-  pub fn set_pq_m(&mut self, pq_m: usize) {
-    self.pq_m = pq_m;
-  }
-  pub fn set_pq_k(&mut self, pq_k: usize) {
-    self.pq_k = pq_k;
-  }
-  
   pub fn build<P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshVamanaMap<P, V>{
     FreshVamanaMap::new(points, values, self)
   }
@@ -101,7 +81,6 @@ struct Node<P> {
   n_in: Vec<usize>,
   p: P,
   id: usize,
-  pq: Vec<usize>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -112,9 +91,6 @@ pub struct FreshVamana<P>
   pub builder: Builder,
   cemetery: Vec<usize>,
   empties: Vec<usize>,
-  dist_cache: HashMap<(usize, usize), f32>,
-  codebooks: Vec<Vec<P>>,
-  pq_dist_map: HashMap<(usize, usize, usize), f32>,
 }
 
 impl<P> FreshVamana<P>
@@ -134,21 +110,19 @@ where
       Note: 
       Disable the quantization for now
     */
-    let codebooks = vec![];
-    let points = points.into_iter().map(|p| (p, vec![])).collect();
+    // let points = points.into_iter().map(|p| (p, vec![])).collect();
 
     println!("\nquantizing time: {:?}", Instant::now().duration_since(start_time));
 
     println!("pq dist phase");
     let start_time = Instant::now();
-    let pq_dist_map = HashMap::new();
     println!("\npq dist time: {:?}", Instant::now().duration_since(start_time));
 
 
     // Initialize Random Graph
     println!("rand init phase");
     let start_time = Instant::now();
-    let mut ann = FreshVamana::<P>::random_graph_init_v2(points, builder, &mut rng, codebooks, pq_dist_map);
+    let mut ann = FreshVamana::<P>::random_graph_init_v2(points, builder, &mut rng);
     println!("\nrand init time: {:?}", Instant::now().duration_since(start_time));
 
     // Prune Edges
@@ -174,8 +148,6 @@ where
 
     // FreshVamana::<P>::indexing(&mut ann, shuffled);
 
-    println!("dist cache len: {} / {}", ann.dist_cache.len(), (ann.nodes.len() * ann.nodes.len()) / 2);
-
     println!("\ntotal indexing time: {:?}", Instant::now().duration_since(start_time));
 
 
@@ -183,7 +155,7 @@ where
     ann
   }
 
-  fn random_graph_init_v2(points: Vec<(P, Vec<usize>)>, builder: Builder, rng: &mut SmallRng, codebooks: Vec<Vec<P>>, pq_dist_map: HashMap<(usize, usize, usize), f32>) -> Self {
+  fn random_graph_init_v2(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
 
     if points.is_empty() {
       return Self {
@@ -192,9 +164,6 @@ where
           builder,
           cemetery: Vec::new(),
           empties: Vec::new(),
-          dist_cache: HashMap::new(),
-          codebooks: Vec::new(),
-          pq_dist_map: HashMap::new(),
         }
     }
 
@@ -204,13 +173,13 @@ where
     /* Find Centroid */
     let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
     for p in &points {
-      average_point = p.0.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
+      average_point = p.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
     }
     let average_point = P::from_f32_vec(average_point.into_iter().map(|v| v / points_len as f32).collect());
     let mut min_dist = f32::MAX;
     let mut centroid = usize::MAX;
     for (i, p) in points.iter().enumerate() {
-      let dist = p.0.distance(&average_point);
+      let dist = p.distance(&average_point);
       if dist < min_dist {
         min_dist = dist;
         centroid = i;
@@ -219,12 +188,11 @@ where
 
 
     /* Get random connected graph */
-    let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, (p, pq))| Node {
+    let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, p)| Node {
       n_out: RwLock::new(Vec::new()),
       n_in: Vec::new(),
       p,
       id,
-      pq
     }).collect();
     
     let node_len = nodes.len();
@@ -253,20 +221,12 @@ where
 
     }
 
-    // for (id, node) in nodes.iter().enumerate() {
-    //   println!("id: {}, len: {}, n_out: {:?}", id, node.n_out.len(), node.n_out);
-    // }
-
-    let node_len = nodes.len();
     Self {
       nodes,
       centroid,
       builder,
       cemetery: Vec::new(),
       empties: Vec::new(),
-      dist_cache: HashMap::with_capacity(node_len/2),
-      codebooks,
-      pq_dist_map,
     }
 
   }
