@@ -159,6 +159,118 @@ impl<P> FreshVamana<P>
 where
     P: Point,
 {
+
+  pub fn new_v2(points: Vec<P>, builder: Builder) -> Self {
+    let mut rng = SmallRng::seed_from_u64(builder.seed);
+    println!("seed: {}", builder.seed);
+
+    let start_time = Instant::now();
+
+    /* --------------- Clustering --------------- */
+    let points_len = points.len();
+    let mut shard_num = 1;
+    if points_len > 25_000 {
+      shard_num += points_len / 25_000;
+    }
+
+    println!("shard_num: {}", shard_num);
+
+    let mut kmeans: KMeans<P> = KMeans::new(rng.clone(), shard_num, 100, points.clone());
+    println!(" kmeans.kmeans_pp_centroids()...");
+    let initial_centorids = kmeans.kmeans_pp_centroids();
+    println!(" kmeans.calculate(initial_centorids)...");
+    let (shards, cluster_centroids) = kmeans.calculate(initial_centorids);
+    // println!("kmeans.calculate shard len: {:?}", shards);
+    println!(" making shards...");
+    let mut shards: Vec<(usize, usize)> = shards
+      .into_iter()
+      .enumerate()
+      .map(|(node_i, cluster_id)| (cluster_id, node_i))
+      .collect();
+
+    // Duplicate nodes over multi shards
+    let second_shards: Vec<(usize, usize)> = points
+      .par_iter()
+      .enumerate()
+      .map(|(point_i, point)| (KMeans::find_second_closest_centroid(point, &cluster_centroids), point_i))
+      .collect();
+    shards.extend(&second_shards);
+
+    shards.sort();
+
+    println!("shuffled shard len: {}", shards.len());
+
+    // Separate shard group
+    let shards: Vec<Vec<usize>> = shards
+      .into_iter()
+      .group_by(|&(first, _)| first)
+      .into_iter()
+      .map(|(_key, group)| group.map(|(_, i)| i).collect())
+      .collect();
+
+    // Sort each shard nodes
+    let shards: Vec<Vec<usize>>  = shards
+      .into_par_iter()
+      .map(|shard| {
+        let mut shard = shard;
+        shard.sort();
+        shard
+      })
+      .collect();
+
+    for shard in &shards {
+      println!("each shard len: {}", shard.len());
+    }
+
+    
+
+    /* --------------- Parallel Sharding Indexing --------------- */
+
+    let points = points.into_iter().map(|p| (p, vec![])).collect();
+
+    let mut original_ann = FreshVamana::<P>::random_graph_init_v2(points, builder.clone(), &mut rng, vec![], HashMap::new());
+    for node in &mut original_ann.nodes {
+      node.n_out = vec![];
+    }
+
+    /*
+    pointsをshardごとに分割&コピーして、random_graph_init_v2へわたし、並列にランダムグラフをシャードごとに作る。
+    */
+    for (shard_i, node_ids) in shards.into_iter().enumerate() {
+      println!("shard id: {}", shard_i);
+
+      let shard_points: Vec<(P, Vec<usize>)> = node_ids
+        .iter()
+        .map(|id| (original_ann.nodes[*id].p.clone(), vec![]))
+        .collect();
+      let mut ann = FreshVamana::<P>::random_graph_init_v2(shard_points, builder.clone(), &mut rng, vec![], HashMap::new());
+
+      let node_len = ann.nodes.len();
+      let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
+      shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+  
+      FreshVamana::<P>::para_indexing(&mut ann, shuffled);
+
+      for (shard_node_i, original_node_i) in node_ids.into_iter().enumerate() {
+        for out_i in &ann.nodes[shard_node_i].n_out {
+          insert_id(*out_i, &mut original_ann.nodes[original_node_i].n_out)
+        }
+      }
+    }
+
+    /* --------------- Merging Shards --------------- */
+
+    // let mut shuffled: Vec<usize> = (0..original_ann.nodes.len()).collect();
+    // shuffled.shuffle(&mut rng);
+    let node_len = original_ann.nodes.len();
+    let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
+    shuffled.sort_by(|a, b| a.0.cmp(&b.0));
+    FreshVamana::<P>::para_indexing(&mut original_ann, shuffled);
+
+    // ann
+    original_ann
+  }
+
   pub fn new(points: Vec<P>, builder: Builder) -> Self {
     let mut rng = SmallRng::seed_from_u64(builder.seed);
     println!("seed: {}", builder.seed);
@@ -186,7 +298,7 @@ where
     // Initialize Random Graph
     println!("rand init phase");
     let start_time = Instant::now();
-    let mut ann = FreshVamana::<P>::random_graph_init_v4(points, builder, &mut rng, codebooks, pq_dist_map);
+    let mut ann = FreshVamana::<P>::random_graph_init_v2(points, builder, &mut rng, codebooks, pq_dist_map);
     println!("\nrand init time: {:?}", Instant::now().duration_since(start_time));
 
     // Prune Edges
@@ -196,7 +308,8 @@ where
     let mut shuffled: Vec<(usize, usize)> = (0..node_len).into_iter().map(|node_i| (rng.gen_range(0..node_len as usize), node_i)).collect();
     shuffled.sort_by(|a, b| a.0.cmp(&b.0));
 
-    FreshVamana::<P>::para_indexing(&mut ann, shuffled);
+    // FreshVamana::<P>::para_indexing(&mut ann, shuffled);
+    FreshVamana::<P>::indexing(&mut ann, shuffled);
 
 
     // /*
@@ -723,7 +836,9 @@ where
     // for 1 ≤ i ≤ n do
     for (count, (_, i)) in shuffled.into_iter().enumerate() {
 
-      println!("id : {}\t/{}", count, ann.nodes.len());
+      if count % 10000 == 0 {
+        println!("id : {}\t/{}", count, ann.nodes.len());
+      }
 
       // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
       let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
@@ -771,9 +886,9 @@ where
 
       let (_, visited) = ann_fix.greedy_search(&ann_fix.nodes[node_i].p, 1, ann_fix.builder.l);
 
-      // if count % 10000 == 0 {
-      //   println!("visiting phase, id : {}\t/{} visited len: {} passed time: {:?}", count, ann.nodes.len(), visited.len(), Instant::now().duration_since(start_time));
-      // }
+      if count % 10000 == 0 {
+        println!("visiting phase, id : {}\t/{} visited len: {} passed time: {:?}", count, ann.nodes.len(), visited.len(), Instant::now().duration_since(start_time));
+      }
 
       // Joint visited ids and current n_out ids
       let mut out_ids: Vec<usize> = visited.into_iter().map(|(_, id)| id).collect(); // ToDo: reuse dist
@@ -806,9 +921,9 @@ where
     let start_time =  Instant::now();
     let pruned_edges: Vec<(usize, Vec<usize>)> = groups.into_par_iter().map(|(node_i, n_out)| {
 
-      // if node_i % 10000 == 0 {
-      //   println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
-      // }
+      if node_i % 10000 == 0 {
+        println!("robust pruning phase, id : {}\t/{}, passed time: {:?}", node_i, ann.nodes.len(), Instant::now().duration_since(start_time));
+      }
 
       let mut candidates: Vec<(f32, usize)> = n_out.into_iter().map(|out_i| {
         let node_i_point =  &ann.nodes[node_i].p;

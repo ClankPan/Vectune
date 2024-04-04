@@ -111,7 +111,7 @@ where
     centroids.into_iter().map(|vec| P::from_f32_vec(vec)).collect()
   }
 
-  pub fn calculate(&self, initial_centroids: Vec<P>) -> (Vec<usize>, Vec<P>) {
+  pub fn calculate(self, initial_centroids: Vec<P>) -> (Vec<usize>, Vec<P>) {
     let mut centroids: Vec<P> = initial_centroids;
 
     let mut count = 0;

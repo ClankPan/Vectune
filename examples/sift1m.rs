@@ -47,7 +47,8 @@ fn read_ivecs(file_path: &str) -> io::Result<Vec<Vec<i32>>> {
 
 fn main() {
 
-  let mut rng = SmallRng::seed_from_u64(rand::random());
+  let seed: u64 = 11923543545843533243;
+  let mut rng = SmallRng::seed_from_u64(seed);
 
   let base_vectors = read_fvecs("./test_data/sift/sift_base.fvecs").unwrap();
 
@@ -59,8 +60,9 @@ fn main() {
   }
 
   println!("building vamana...");
-  let mut vamana_map: FreshVamanaMap<Point, usize> = VamanaBuilder::default().build(points.clone(), values.clone());
-  vamana_map.ann.builder.l = 500;
+  let mut vamana_builder = VamanaBuilder::default();
+  // vamana_builder.set_l(250);
+  let vamana_map: FreshVamanaMap<Point, usize> = vamana_builder.build(points.clone(), values.clone());
 
 
   // Search in FreshVamana

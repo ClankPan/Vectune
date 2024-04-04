@@ -17,4 +17,6 @@ serde_json = "1.0"
 
 [dev-dependencies]
 byteorder = "1.5.0"
-instant-distance = "0.6.1"
+indicatif = "0.17.8"
+# instant-distance = { version = "0.6.1", features = ["progress-bar"]}
+instant-distance = { git = "https://github.com/ClankPan/instant-distance", rev = "94218c7", features = ["with-serde", "progress-bar"], package = "instant-distance"}

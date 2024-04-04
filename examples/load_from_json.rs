@@ -47,33 +47,10 @@ fn read_ivecs(file_path: &str) -> io::Result<Vec<Vec<i32>>> {
 
 fn main() {
 
-  let mut rng = SmallRng::seed_from_u64(rand::random());
 
-  let base_vectors = read_fvecs("./test_data/sift/sift_base.fvecs").unwrap();
+  let seed: u64 = 11923543545843533243;
+  let mut rng = SmallRng::seed_from_u64(seed);
 
-  let mut points = Vec::new();
-  let mut values = Vec::new();
-  for (i, vec) in base_vectors.iter().enumerate() {
-    points.push(Point(vec.to_vec()));
-    values.push(i);
-  }
-
-  // println!("building vamana...");
-  // let vamana_map: FreshVamanaMap<Point, usize> = VamanaBuilder::default().build(points.clone(), values.clone());
-
-
-  // // Search in FreshVamana
-  // println!("searcing vamana...");
-  // let vamana_results = vamana_map.search(&Point(query.to_vec()));
-  // println!("{:?}\n\n", vamana_results);
-
-  // println!("results: {:?}", vamana_results.iter().map(|(_, i)|*i).collect::<Vec<usize>>());
-
-
-
-  // let serialized = serde_json::to_string(&vamana_map).unwrap();
-  // let mut file = File::create("test_data/vamana_1m.json").unwrap();
-  // file.write_all(serialized.as_bytes()).unwrap();
 
   let mut file = File::open("test_data/vamana_1m.json").unwrap();
   let mut contents = String::new();
@@ -82,7 +59,7 @@ fn main() {
 
   let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
 
-  deserialized_vamana_map.ann.builder.l = 1000;
+  // deserialized_vamana_map.ann.builder.l = 1000;
 
   let query_vectors = read_fvecs("./test_data/sift/sift_query.fvecs").unwrap();
 
@@ -109,6 +86,14 @@ fn main() {
   println!("5-recall-rate@5: {}", hit as f32 / (5 * round) as f32);
   // let vamana_results = deserialized_vamana_map.search(&Point(query.to_vec()));
   // println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results.into_iter().map(|(_, i)|i).collect::<Vec<usize>>());
+
+
+  /*
+  Note:
+  l 125 = 1032s
+  l 90 = 728s
+  l 250 = 2581s
+  */
 
 
 }
