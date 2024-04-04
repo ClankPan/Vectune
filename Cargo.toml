@@ -9,6 +9,7 @@ edition = "2021"
 ahash = "0.8.11"
 hashbrown = "0.14.3"
 itertools = "0.12.1"
+parking_lot = "0.12.1"
 # kmeans = "0.2.1"
 rand = { version = "0.8", features = ["small_rng"] }
 rayon = "1.10.0"

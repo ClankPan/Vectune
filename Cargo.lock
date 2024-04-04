@@ -439,6 +439,7 @@ dependencies = [
  "indicatif",
  "instant-distance",
  "itertools",
+ "parking_lot",
  "rand",
  "rayon",
  "serde",
