@@ -67,7 +67,7 @@ where
     }
     pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
         let (results, _visited) = self.ann.greedy_search_v2(query_point, 30, self.ann.builder.l);
-        // println!("\n\nvisited:   {:?}\n\n", _visited);
+        println!("\n\nvisited:   {:?}\n\n", _visited);
         results
             .into_iter()
             .map(|(dist, i)| (dist, self.values[i].clone()))
@@ -312,34 +312,16 @@ where
         // k-anns, visited
         assert!(l >= k);
         let s = self.centroid;
-        let mut visited: Vec<(f32, usize)> = Vec::new();
-        let mut touched: Vec<usize> = Vec::with_capacity(self.builder.l*2);
+        let mut visited: Vec<(f32, usize)> = Vec::with_capacity(self.builder.l*2);
+        let mut touched: Vec<usize> = Vec::with_capacity(self.builder.l*10);
 
-        // let mut list: Vec<(f32, usize, bool)> = self.nodes[s]
-        //     .n_out
-        //     .read()
-        //     .unwrap()
-        //     .clone()
-        //     .into_iter()
-        //     .map(|out_i|{
-        //         // insert_id(out_i, &mut touched);
-        //         (query_point.distance(&self.nodes[out_i].p), out_i, false)
-        //     })
-        //     .collect();
-        // sort_list_by_dist(&mut list);
-        // list.truncate(self.builder.l);
-
-        let mut list: Vec<(f32, usize, bool)> = vec![(query_point.distance(&self.nodes[s].p), s, true)];
-        let mut working = Some((0, list[0]));
+        let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(self.builder.l);
+        list.push((query_point.distance(&self.nodes[s].p), s, true));
+        let mut working = Some(list[0]);
         visited.push((list[0].0, list[0].1));
-        insert_id(list[0].1, &mut touched);
+        touched.push(list[0].1);
 
-        while let Some((list_i, (nearest_dist, nearest_i, _))) = working {
-
-            visited.push((nearest_dist, nearest_i));
-            insert_id(nearest_i, &mut touched);
-            list[list_i].2 = true;
-
+        while let Some((_, nearest_i, _)) = working {
             let mut nouts: Vec<(f32, usize, bool)> = self.nodes[nearest_i]
                 .n_out
                 .read()
@@ -347,40 +329,73 @@ where
                 .clone()
                 .iter()
                 .filter_map(|out_i| {
-                    if list.iter().find(|(_, id, _)| id == out_i).is_some() {
-                        return None
-                    }
                     match touched.binary_search(out_i) {
-                        Ok(_) => return None,
-                        Err(_index) => {
-                            // touched.insert(index, *out_i);
-                            return Some((query_point.distance(&self.nodes[*out_i].p), *out_i, false))
+                        Ok(_) => None,
+                        Err(index) => {
+                            // insert_id(*out_i, &mut touched);
+                            touched.insert(index, *out_i);
+                            Some((query_point.distance(&self.nodes[*out_i].p), *out_i, false))
                         }
                     }
                 })
                 .collect();
             sort_list_by_dist(&mut nouts);
 
-            // ここを短くする。
-            list.extend(nouts);
-            sort_list_by_dist(&mut list);
-            list.truncate(self.builder.l);
+            // let new_list = vec![(f32::MAX, usize::MAX, false); self.builder.l];
+            let mut new_list = Vec::with_capacity(self.builder.l);
+            let mut new_list_idx = 0;
 
-            
+            let mut l_idx = 0; // Index for list
+            let mut n_idx = 0; // Index for dists
 
-            working = list.clone().into_iter().enumerate().find(|(_, (_, _, is_visited))| !is_visited);
+            working = None;
 
-            // println!("working: {:?}\n\n", working);
-            // println!("list: {:?}\n\n", list);
-            // println!("visited: {:?}\n\n", visited);
-            // println!("touched: {:?}\n\n", touched);
+            while new_list_idx < self.builder.l {
+                let mut new_min = if l_idx >= list.len() && n_idx >= nouts.len() {
+                    break;
+                } else if l_idx >= list.len() {
+                    let new_min = nouts[n_idx];
+                    n_idx += 1;
+                    new_min
+                } else if n_idx >= nouts.len() {
+                    let new_min = list[l_idx];
+                    l_idx += 1;
+                    new_min
+                } else {
+                    let l_min = list[l_idx];
+                    let n_min = nouts[n_idx];
+
+                    let new_min = if l_min.0 <= n_min.0 {
+                        l_idx += 1;
+                        l_min
+                    } else {
+                        n_idx += 1;
+                        n_min
+                    };
+
+                    new_min
+                };
+
+                let is_not_visited = !new_min.2;
+
+                if working == None && is_not_visited {
+                    new_min.2 = true; // Mark as visited
+                    working = Some(new_min);
+                    visited.push((new_min.0, new_min.1));
+                }
+
+                new_list.push(new_min);
+                new_list_idx += 1;
+            }
+
+            list = new_list;
+            // println!("list: {:?}\n\n", list)
         }
 
         let mut k_anns = list
             .into_iter()
             .map(|(dist, id, _)| (dist, id))
             .collect::<Vec<(f32, usize)>>();
-
         k_anns.truncate(k);
 
         sort_list_by_dist_v1(&mut visited);
