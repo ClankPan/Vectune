@@ -6,8 +6,8 @@ use rand::SeedableRng;
 use rand::{rngs::SmallRng, Rng};
 
 use rayon::prelude::*;
-use std::sync::RwLock;
-// use parking_lot::RwLock;
+// use std::sync::RwLock;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 pub mod kmeans;
@@ -50,7 +50,7 @@ impl Builder {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+// #[derive(Serialize, Deserialize)]
 pub struct FreshVamanaMap<P, V> {
     pub ann: FreshVamana<P>,
     values: Vec<V>,
@@ -68,7 +68,7 @@ where
     }
     pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
         let (results, _visited) = self.ann.greedy_search_v2(query_point, 30, self.ann.builder.l);
-        println!("\n\nvisited:   {:?}\n\n", _visited);
+        // println!("\n\nvisited:   {:?}\n\n", _visited);
         results
             .into_iter()
             .map(|(dist, i)| (dist, self.values[i].clone()))
@@ -76,7 +76,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize)]
+// #[derive(Serialize, Deserialize)]
 struct Node<P> {
     n_out: RwLock<Vec<usize>>, // has pointer. ToDo: should use PQ to resuce memory accesses.
     n_in: Vec<usize>,
@@ -84,7 +84,7 @@ struct Node<P> {
     id: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+// #[derive(Serialize, Deserialize)]
 pub struct FreshVamana<P> {
     nodes: Vec<Node<P>>,
     centroid: usize,
@@ -187,7 +187,7 @@ where
                 }
                 let out_node_i = working[working_i];
                 // insert_id(node_i, &mut nodes[out_node_i].n_in); // ToDo: refactor , use self.make_edge()
-                insert_id(out_node_i, &mut nodes[node_i].n_out.write().unwrap());
+                insert_id(out_node_i, &mut nodes[node_i].n_out.write());
 
                 // Since prevents the creation of nodes that are not referenced by anyone during initialization,
                 // ensure that all input edges are R nodes
@@ -221,7 +221,7 @@ where
             let (_, visited) = ann.greedy_search_v2(&ann.nodes[i].p, 1, ann.builder.l);
 
             // V ← (V ∪ Nout(p)) \ {p}
-            let prev_n_out = ann.nodes[i].n_out.read().unwrap().clone();
+            let prev_n_out = ann.nodes[i].n_out.read().clone();
             let mut candidates = visited;
             for out_i in &prev_n_out {
                 if !is_contained_in(out_i, &candidates) {
@@ -233,13 +233,13 @@ where
 
             // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
             let mut new_n_out = ann.prune(&mut candidates);
-            let new_added_ids = diff_ids(&ann.nodes[i].n_out.read().unwrap(), &prev_n_out);
+            let new_added_ids = diff_ids(&ann.nodes[i].n_out.read(), &prev_n_out);
             for out_i in new_added_ids {
                 insert_id(out_i, &mut new_n_out);
             }
 
             {
-                let mut current_n_out = ann.nodes[i].n_out.write().unwrap();
+                let mut current_n_out = ann.nodes[i].n_out.write();
                 *current_n_out = new_n_out.clone();
                 // let mut current_n_out = ann.nodes[i].n_out.write().unwrap();
                 // let new_added_ids = diff_ids(&current_n_out, &prev_n_out);
@@ -251,11 +251,11 @@ where
 
             // for all points j in Nout(σ(i)) do
             for j in new_n_out {
-                if ann.nodes[j].n_out.read().unwrap().contains(&i) {
+                if ann.nodes[j].n_out.read().contains(&i) {
                     continue;
                 } else {
                     // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
-                    insert_id(i, &mut ann.nodes[j].n_out.write().unwrap());
+                    insert_id(i, &mut ann.nodes[j].n_out.write());
                     // insert_id(j, &mut ann.nodes[i].n_in);
                 }
 
@@ -333,7 +333,6 @@ where
             let mut nouts: Vec<(f32, usize, bool)> = self.nodes[nearest_i]
                 .n_out
                 .read()
-                .unwrap()
                 // .clone()
                 .iter()
                 .filter_map(|out_i| {
@@ -511,7 +510,7 @@ where
             }
 
             // update L ← L ∪ Nout(p∗) and V ← V ∪ {p∗}
-            let nearest_n_out = &self.nodes[nearest.1].n_out.read().unwrap().clone();
+            let nearest_n_out = &self.nodes[nearest.1].n_out.read().clone();
             for out_i in nearest_n_out {
                 let out_i_point = &self.nodes[*out_i].p;
 
@@ -736,11 +735,11 @@ mod tests {
         let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
 
         for node_i in 0..point_len {
-            for out_i in ann.nodes[node_i].n_out.read().unwrap().iter() {
+            for out_i in ann.nodes[node_i].n_out.read().iter() {
                 assert!(ann.nodes[*out_i].n_in.contains(&node_i))
             }
             for in_i in &ann.nodes[node_i].n_in {
-                assert!(ann.nodes[*in_i].n_out.read().unwrap().contains(&node_i))
+                assert!(ann.nodes[*in_i].n_out.read().contains(&node_i))
             }
         }
     }
