@@ -1,4 +1,5 @@
 use std::time::Instant;
+use std::collections::HashSet;
 
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -313,13 +314,14 @@ where
         assert!(l >= k);
         let s = self.centroid;
         let mut visited: Vec<(f32, usize)> = Vec::with_capacity(self.builder.l*2);
-        let mut touched: Vec<usize> = Vec::with_capacity(self.builder.l*10);
+        // let mut touched: Vec<usize> = Vec::with_capacity(self.builder.l*10);
+        let mut touched: HashSet<usize> = HashSet::with_capacity(self.builder.l*10);
 
         let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(self.builder.l);
         list.push((query_point.distance(&self.nodes[s].p), s, true));
         let mut working = Some(list[0]);
         visited.push((list[0].0, list[0].1));
-        touched.push(list[0].1);
+        touched.insert(list[0].1);
 
         while let Some((_, nearest_i, _)) = working {
             let mut nouts: Vec<(f32, usize, bool)> = self.nodes[nearest_i]
@@ -329,13 +331,11 @@ where
                 .clone()
                 .iter()
                 .filter_map(|out_i| {
-                    match touched.binary_search(out_i) {
-                        Ok(_) => None,
-                        Err(index) => {
-                            // insert_id(*out_i, &mut touched);
-                            touched.insert(index, *out_i);
-                            Some((query_point.distance(&self.nodes[*out_i].p), *out_i, false))
-                        }
+                    if !touched.contains(out_i) {
+                        touched.insert(*out_i);
+                        Some((query_point.distance(&self.nodes[*out_i].p), *out_i, false))
+                    } else {
+                        None
                     }
                 })
                 .collect();
