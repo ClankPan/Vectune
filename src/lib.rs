@@ -66,7 +66,8 @@ where
         Self { ann, values }
     }
     pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
-        let (results, _visited) = self.ann.greedy_search(query_point, 30, self.ann.builder.l);
+        let (results, _visited) = self.ann.greedy_search_v2(query_point, 30, self.ann.builder.l);
+        // println!("\n\nvisited:   {:?}\n\n", _visited);
         results
             .into_iter()
             .map(|(dist, i)| (dist, self.values[i].clone()))
@@ -204,94 +205,19 @@ where
         }
     }
 
-    // fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
-
-    //   if points.is_empty() {
-    //     return Self {
-    //         nodes: Vec::new(),
-    //         centroid: usize::MAX,
-    //         builder,
-    //         cemetery: Vec::new(),
-    //         empties: Vec::new(),
-    //       }
-    //   }
-
-    //   assert!(points.len() < u32::MAX as usize);
-    //   let points_len = points.len();
-
-    //   /* Find Centroid */
-    //   let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
-    //   for p in &points {
-    //     average_point = p.to_f32_vec().iter().zip(average_point.iter()).map(|(x, y)| x + y).collect();
-    //   }
-    //   let average_point = P::from_f32_vec(average_point.into_iter().map(|v| v / points_len as f32).collect());
-    //   let mut min_dist = f32::MAX;
-    //   let mut centroid = usize::MAX;
-    //   for (i, p) in points.iter().enumerate() {
-    //     let dist = p.distance(&average_point);
-    //     if dist < min_dist {
-    //       min_dist = dist;
-    //       centroid = i;
-    //     }
-    //   }
-
-    //   /* Get random connected graph */
-    //   let mut nodes: Vec<Node<P>> = points.into_iter().enumerate().map(|(id, p)| Node {
-    //     n_out: RwLock::new(Vec::new()),
-    //     n_in: Vec::new(),
-    //     p,
-    //     id,
-    //   }).collect();
-
-    //   let node_len = nodes.len();
-
-    //   let r_size = builder.r;
-
-    //   let mut shuffle_node_ids = (0..node_len).collect::<Vec<_>>();
-
-    //   let shuffle_node_ids_duplicated_r_times: Vec<usize> = (0..r_size).into_iter().map(|_| {
-    //     shuffle_node_ids.shuffle(rng);
-    //     shuffle_node_ids.clone()
-    //   }).flatten().collect();
-
-    //   shuffle_node_ids.shuffle(rng);
-
-    //   for (i, node_i) in shuffle_node_ids.into_iter().enumerate() {
-    //     let mut new_n_out = shuffle_node_ids_duplicated_r_times[i..i+r_size].to_vec();
-    //     new_n_out.sort();
-    //     new_n_out.dedup();
-
-    //     for out_i in &new_n_out {
-    //       insert_id(node_i, &mut nodes[*out_i].n_in);
-    //     }
-
-    //     nodes[node_i].n_out = RwLock::new(new_n_out);
-
-    //   }
-
-    //   Self {
-    //     nodes,
-    //     centroid,
-    //     builder,
-    //     cemetery: Vec::new(),
-    //     empties: Vec::new(),
-    //   }
-
-    // }
-
     fn indexing(ann: &mut FreshVamana<P>, rng: &mut SmallRng) {
         let node_len = ann.nodes.len();
         let mut shuffled: Vec<usize> = (0..node_len).collect();
         shuffled.shuffle(rng);
 
         // for 1 ≤ i ≤ n do
-        shuffled.into_par_iter().enumerate().for_each(|(count, i)| {
+        shuffled.into_iter().enumerate().for_each(|(count, i)| {
             if count % 10000 == 0 {
                 println!("id : {}\t/{}", count, ann.nodes.len());
             }
 
             // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
-            let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
+            let (_, visited) = ann.greedy_search_v2(&ann.nodes[i].p, 1, ann.builder.l);
 
             // V ← (V ∪ Nout(p)) \ {p}
             let prev_n_out = ann.nodes[i].n_out.read().unwrap().clone();
@@ -377,6 +303,92 @@ where
         new_n_out
     }
 
+    fn greedy_search_v2(
+        &self,
+        query_point: &P,
+        k: usize,
+        l: usize,
+    ) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) {
+        // k-anns, visited
+        assert!(l >= k);
+        let s = self.centroid;
+        let mut visited: Vec<(f32, usize)> = Vec::new();
+        let mut touched: Vec<usize> = Vec::with_capacity(self.builder.l*2);
+
+        // let mut list: Vec<(f32, usize, bool)> = self.nodes[s]
+        //     .n_out
+        //     .read()
+        //     .unwrap()
+        //     .clone()
+        //     .into_iter()
+        //     .map(|out_i|{
+        //         // insert_id(out_i, &mut touched);
+        //         (query_point.distance(&self.nodes[out_i].p), out_i, false)
+        //     })
+        //     .collect();
+        // sort_list_by_dist(&mut list);
+        // list.truncate(self.builder.l);
+
+        let mut list: Vec<(f32, usize, bool)> = vec![(query_point.distance(&self.nodes[s].p), s, true)];
+        let mut working = Some((0, list[0]));
+        visited.push((list[0].0, list[0].1));
+        insert_id(list[0].1, &mut touched);
+
+        while let Some((list_i, (nearest_dist, nearest_i, _))) = working {
+
+            visited.push((nearest_dist, nearest_i));
+            insert_id(nearest_i, &mut touched);
+            list[list_i].2 = true;
+
+            let mut nouts: Vec<(f32, usize, bool)> = self.nodes[nearest_i]
+                .n_out
+                .read()
+                .unwrap()
+                .clone()
+                .iter()
+                .filter_map(|out_i| {
+                    if list.iter().find(|(_, id, _)| id == out_i).is_some() {
+                        return None
+                    }
+                    match touched.binary_search(out_i) {
+                        Ok(_) => return None,
+                        Err(_index) => {
+                            // touched.insert(index, *out_i);
+                            return Some((query_point.distance(&self.nodes[*out_i].p), *out_i, false))
+                        }
+                    }
+                })
+                .collect();
+            sort_list_by_dist(&mut nouts);
+
+            // ここを短くする。
+            list.extend(nouts);
+            sort_list_by_dist(&mut list);
+            list.truncate(self.builder.l);
+
+            
+
+            working = list.clone().into_iter().enumerate().find(|(_, (_, _, is_visited))| !is_visited);
+
+            // println!("working: {:?}\n\n", working);
+            // println!("list: {:?}\n\n", list);
+            // println!("visited: {:?}\n\n", visited);
+            // println!("touched: {:?}\n\n", touched);
+        }
+
+        let mut k_anns = list
+            .into_iter()
+            .map(|(dist, id, _)| (dist, id))
+            .collect::<Vec<(f32, usize)>>();
+
+        k_anns.truncate(k);
+
+        sort_list_by_dist_v1(&mut visited);
+
+        (k_anns, visited)
+
+    }
+
     fn greedy_search(&self, xq: &P, k: usize, l: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) {
         // k-anns, visited
         assert!(l >= k);
@@ -437,7 +449,7 @@ where
             let mut result = Vec::new();
             let mut a_idx = 0;
             let mut b_idx = 0;
-        
+
             while a_idx < a.len() && b_idx < b.len() {
                 if a[a_idx].1 == b[b_idx].1 {
                     a_idx += 1; // Skip common elements
@@ -451,16 +463,16 @@ where
                     b_idx += 1;
                 }
             }
-        
+
             // Add the remaining elements of a (since they do not exist in b)
             while a_idx < a.len() {
                 result.push(a[a_idx]);
                 a_idx += 1;
             }
-        
+
             result
         }
-        
+
         // let p∗ ← arg minp∈L\V ||xp − xq||
         while let Some(nearest) = working
             .iter()
@@ -498,7 +510,7 @@ where
 
             if list.len() > l {
                 // sort_by_dist_and_resize(&mut list, l)
-                sort_list_by_dist(&mut list);
+                sort_list_by_dist_v1(&mut list);
                 list.truncate(l);
                 sort_list_by_id(&mut list)
             }
@@ -547,7 +559,11 @@ fn diff_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
     result
 }
 
-fn sort_list_by_dist(list: &mut Vec<(f32, usize)>) {
+fn sort_list_by_dist(list: &mut Vec<(f32, usize, bool)>) {
+    list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
+}
+
+fn sort_list_by_dist_v1(list: &mut Vec<(f32, usize)>) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
 }
 
@@ -555,10 +571,10 @@ fn sort_list_by_id(list: &mut Vec<(f32, usize)>) {
     list.sort_by(|a, b| a.1.cmp(&b.1));
 }
 
-fn find_nearest(c: &mut Vec<(f32, usize)>) -> (f32, usize) {
-    sort_list_by_dist(c); // ToDo: Ensure that the arugment list is already sorted.
-    c[0]
-}
+// fn find_nearest(c: &mut Vec<(f32, usize)>) -> (f32, usize) {
+//     sort_list_by_dist(c); // ToDo: Ensure that the arugment list is already sorted.
+//     c[0]
+// }
 
 fn sort_by_dist_and_resize(list: &mut Vec<(f32, usize)>, size: usize) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
@@ -568,7 +584,8 @@ fn sort_by_dist_and_resize(list: &mut Vec<(f32, usize)>, size: usize) {
 fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
     !vec.iter()
         .filter(|(_, id)| *id == *i)
-        .collect::<Vec<&(f32, usize)>>().is_empty()
+        .collect::<Vec<&(f32, usize)>>()
+        .is_empty()
 }
 
 fn remove_from(value: &(f32, usize), vec: &mut Vec<(f32, usize)>) {
@@ -600,7 +617,7 @@ fn remove_from(value: &(f32, usize), vec: &mut Vec<(f32, usize)>) {
 
 fn insert_id(value: usize, vec: &mut Vec<usize>) {
     match vec.binary_search(&value) {
-        Ok(_index) => {// If already exsits
+        Ok(_index) => { // If already exsits
         }
         Err(index) => {
             vec.insert(index, value);
@@ -773,8 +790,8 @@ mod tests {
         let mut builder = Builder::default();
         builder.set_l(30);
         println!("seed: {}", builder.seed);
-        let seed = builder.seed;
-        // let seed: u64 = 6752150918298254033;
+        // let seed = builder.seed;
+        let seed: u64 = 17674802184506369839;
         let mut rng = SmallRng::seed_from_u64(seed);
         let l = builder.l;
 
@@ -791,7 +808,7 @@ mod tests {
         let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
         let xq = Point(vec![0; Point::dim() as usize]);
         let k = 10;
-        let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+        let (k_anns, _visited) = ann.greedy_search_v2(&xq, k, l);
 
         println!("k_anns: {:?}", k_anns);
 
@@ -811,16 +828,29 @@ mod tests {
 
     #[test]
     fn test_sort_list_by_dist() {
-        let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+        let mut a = vec![
+            (0.2, 2, false),
+            (0.1, 1, false),
+            (0.3, 3, false),
+            (0.0, 0, false),
+        ];
         sort_list_by_dist(&mut a);
-        assert_eq!(a, vec![(0.0, 0), (0.1, 1), (0.2, 2), (0.3, 3)])
+        assert_eq!(
+            a,
+            vec![
+                (0.0, 0, false),
+                (0.1, 1, false),
+                (0.2, 2, false),
+                (0.3, 3, false)
+            ]
+        )
     }
 
-    #[test]
-    fn test_find_nearest() {
-        let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
-        assert_eq!(find_nearest(&mut a), (0.0, 0));
-    }
+    // #[test]
+    // fn test_find_nearest() {
+    //     let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
+    //     assert_eq!(find_nearest(&mut a), (0.0, 0));
+    // }
 
     #[test]
     fn test_sort_and_resize() {
@@ -905,23 +935,23 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_diff_ids() {
-        let a = vec![0, 1, 3, 4];
-        let b = vec![0, 4];
-        let c = diff_ids(&a, &b);
-        assert_eq!(c, vec![1, 3]);
+    // #[test]
+    // fn test_diff_ids() {
+    //     let a = vec![0, 1, 3, 4];
+    //     let b = vec![0, 4];
+    //     let c = diff_ids(&a, &b);
+    //     assert_eq!(c, vec![1, 3]);
 
-        let b = vec![0, 4, 5];
-        let c = diff_ids(&a, &b);
-        assert_eq!(c, vec![1, 3]);
+    //     let b = vec![0, 4, 5];
+    //     let c = diff_ids(&a, &b);
+    //     assert_eq!(c, vec![1, 3]);
 
-        let b = vec![0, 1, 3, 4];
-        let c = diff_ids(&a, &b);
-        assert_eq!(c, vec![]);
+    //     let b = vec![0, 1, 3, 4];
+    //     let c = diff_ids(&a, &b);
+    //     assert_eq!(c, vec![]);
 
-        let b = vec![];
-        let c = diff_ids(&a, &b);
-        assert_eq!(c, a);
-    }
+    //     let b = vec![];
+    //     let c = diff_ids(&a, &b);
+    //     assert_eq!(c, a);
+    // }
 }

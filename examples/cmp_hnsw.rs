@@ -1,4 +1,4 @@
-use instant_distance::{Point as HnswPoint};
+use instant_distance::Point as HnswPoint;
 use serde::Deserialize;
 use std::fs;
 use vectune::{Builder as VamanaBuilder, FreshVamanaMap, Point as VamanaPoint};

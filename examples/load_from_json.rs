@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
+use std::io::Read;
 use std::io::{self, BufReader};
-use std::io::{Read};
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
