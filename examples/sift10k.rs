@@ -1,3 +1,6 @@
+#![feature(portable_simd)]
+use std::simd::f32x4;
+
 use vectune::{Builder as VamanaBuilder, FreshVamanaMap, Point as VamanaPoint};
 
 use rand::rngs::SmallRng;
@@ -10,6 +13,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::io::{Read, Write};
+
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
@@ -96,17 +100,77 @@ fn main() {
 struct Point(Vec<f32>);
 
 impl VamanaPoint for Point {
+    // fn distance(&self, other: &Self) -> f32 {
+    //     self.0
+    //         .iter()
+    //         .zip(other.0.iter())
+    //         .map(|(a, b)| {
+    //             let c = a - b;
+    //             c * c
+    //         })
+    //         .sum::<f32>()
+    //         .sqrt()
+    // }
+
     fn distance(&self, other: &Self) -> f32 {
-        self.0
+        assert_eq!(self.0.len(), other.0.len());
+
+        let mut sum = f32x4::splat(0.0);
+        let chunks = self.0.chunks_exact(4).zip(other.0.chunks_exact(4));
+
+        for (a_chunk, b_chunk) in chunks {
+            let a_simd = f32x4::from_slice(a_chunk);
+            let b_simd = f32x4::from_slice(b_chunk);
+            let diff = a_simd - b_simd;
+            sum += diff * diff;
+        }
+
+        // Convert SIMD vector sum to an array and sum its elements
+        let simd_sum: f32 = sum.to_array().iter().sum();
+
+        // Handle remaining elements
+        let remainder_start = self.0.len() - self.0.len() % 4;
+        let remainder_sum: f32 = self.0[remainder_start..]
             .iter()
-            .zip(other.0.iter())
+            .zip(&other.0[remainder_start..])
             .map(|(a, b)| {
-                let c = a - b;
-                c * c
+                let diff = a - b;
+                diff * diff
             })
-            .sum::<f32>()
-            .sqrt()
+            .sum();
+
+        // Calculate the total sum and then the square root
+        (simd_sum + remainder_sum).sqrt()
     }
+
+
+    // fn distance(&self, other: &Self) -> f32 {
+    //     assert_eq!(self.0.len(), other.0.len());
+
+    //     let mut sum = f32x4::splat(0.0);
+    //     let chunks = self.0.chunks_exact(4).zip(other.0.chunks_exact(4));
+
+    //     for (a_chunk, b_chunk) in chunks {
+    //         let a_simd = f32x4::from_slice(a_chunk);
+    //         let b_simd = f32x4::from_slice(b_chunk);
+    //         let diff = a_simd - b_simd;
+    //         sum += diff * diff;
+    //     }
+
+    //     // Handle remaining elements
+    //     let remainder_start = self.0.len() - self.0.len() % 4;
+    //     let remainder_sum: f32 = self.0[remainder_start..]
+    //         .iter()
+    //         .zip(&other.0[remainder_start..])
+    //         .map(|(a, b)| {
+    //             let diff = a - b;
+    //             diff * diff
+    //         })
+    //         .sum();
+
+    //     // Sum up all elements in the SIMD vector and add the sum of remainders
+    //     (sum.horizontal_sum() + remainder_sum).sqrt()
+    // }
 
     fn dim() -> u32 {
         384

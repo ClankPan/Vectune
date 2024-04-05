@@ -212,7 +212,7 @@ where
         shuffled.shuffle(rng);
 
         // for 1 ≤ i ≤ n do
-        shuffled.into_iter().enumerate().for_each(|(count, i)| {
+        shuffled.into_par_iter().enumerate().for_each(|(count, i)| {
             if count % 10000 == 0 {
                 println!("id : {}\t/{}", count, ann.nodes.len());
             }
@@ -232,15 +232,21 @@ where
             }
 
             // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
-            let new_n_out = ann.prune(&mut candidates);
-            // robust prune実行中に追加されたnoutを出す。
+            let mut new_n_out = ann.prune(&mut candidates);
+            let new_added_ids = diff_ids(&ann.nodes[i].n_out.read().unwrap(), &prev_n_out);
+            for out_i in new_added_ids {
+                insert_id(out_i, &mut new_n_out);
+            }
+
             {
                 let mut current_n_out = ann.nodes[i].n_out.write().unwrap();
-                let new_added_ids = diff_ids(&current_n_out, &prev_n_out);
                 *current_n_out = new_n_out.clone();
-                for out_i in new_added_ids {
-                    insert_id(out_i, &mut current_n_out);
-                }
+                // let mut current_n_out = ann.nodes[i].n_out.write().unwrap();
+                // let new_added_ids = diff_ids(&current_n_out, &prev_n_out);
+                // *current_n_out = new_n_out.clone();
+                // for out_i in new_added_ids {
+                //     insert_id(out_i, &mut current_n_out);
+                // }
             } // unlock the write lock
 
             // for all points j in Nout(σ(i)) do
@@ -315,7 +321,7 @@ where
         let s = self.centroid;
         let mut visited: Vec<(f32, usize)> = Vec::with_capacity(self.builder.l*2);
         // let mut touched: Vec<usize> = Vec::with_capacity(self.builder.l*10);
-        let mut touched: HashSet<usize> = HashSet::with_capacity(self.builder.l*10);
+        let mut touched: HashSet<usize> = HashSet::with_capacity(self.builder.l*100);
 
         let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(self.builder.l);
         list.push((query_point.distance(&self.nodes[s].p), s, true));
@@ -328,7 +334,7 @@ where
                 .n_out
                 .read()
                 .unwrap()
-                .clone()
+                // .clone()
                 .iter()
                 .filter_map(|out_i| {
                     if !touched.contains(out_i) {

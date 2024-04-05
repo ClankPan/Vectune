@@ -2,6 +2,7 @@
 name = "vectune"
 version = "0.1.0"
 edition = "2021"
+rustc-flags = ["-C", "target-feature=+simd"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -21,3 +22,7 @@ byteorder = "1.5.0"
 indicatif = "0.17.8"
 # instant-distance = { version = "0.6.1", features = ["progress-bar"]}
 instant-distance = { git = "https://github.com/ClankPan/instant-distance", rev = "94218c7", features = ["with-serde", "progress-bar"], package = "instant-distance"}
+
+[features]
+# Enable unstable features necessary for std::simd
+simd = []
