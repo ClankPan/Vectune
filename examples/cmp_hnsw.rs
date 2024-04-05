@@ -1,4 +1,4 @@
-use instant_distance::{Builder as HnswBuilder, HnswMap, Point as HnswPoint, Search};
+use instant_distance::{Point as HnswPoint};
 use serde::Deserialize;
 use std::fs;
 use vectune::{Builder as VamanaBuilder, FreshVamanaMap, Point as VamanaPoint};
@@ -35,7 +35,7 @@ fn main() {
         VamanaBuilder::default().build(points.clone(), values.clone());
 
     // Random query
-    let query_point = &points[rng.gen_range(0..points.len() as usize)];
+    let query_point = &points[rng.gen_range(0..points.len())];
 
     // Search in HNSW
     // println!("searching in hnsw...");
@@ -79,9 +79,9 @@ impl VamanaPoint for Point {
         384
     }
     fn to_f32_vec(&self) -> Vec<f32> {
-        self.0.iter().map(|v| *v as f32).collect()
+        self.0.iter().map(|v| *v).collect()
     }
     fn from_f32_vec(a: Vec<f32>) -> Self {
-        Point(a.into_iter().map(|v| v).collect())
+        Point(a.into_iter().collect())
     }
 }

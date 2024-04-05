@@ -66,7 +66,7 @@ where
         Self { ann, values }
     }
     pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
-        let (results, _visited) = self.ann.greedy_search(&query_point, 30, self.ann.builder.l);
+        let (results, _visited) = self.ann.greedy_search(query_point, 30, self.ann.builder.l);
         results
             .into_iter()
             .map(|(dist, i)| (dist, self.values[i].clone()))
@@ -177,7 +177,7 @@ where
         for node_i in 0..node_len {
             let mut n_out_cout = 0;
             while n_out_cout < builder.r {
-                let working_i = rng.gen_range(0..working.len() as usize);
+                let working_i = rng.gen_range(0..working.len());
                 if working_i == node_i {
                     continue;
                 } else {
@@ -285,8 +285,8 @@ where
         shuffled.shuffle(rng);
 
         // for 1 ≤ i ≤ n do
-        shuffled.into_iter().enumerate().for_each(|(count, i)| {
-            if count % 1000 == 0 {
+        shuffled.into_par_iter().enumerate().for_each(|(count, i)| {
+            if count % 10000 == 0 {
                 println!("id : {}\t/{}", count, ann.nodes.len());
             }
 
@@ -297,7 +297,7 @@ where
             let prev_n_out = ann.nodes[i].n_out.read().unwrap().clone();
             let mut candidates = visited;
             for out_i in &prev_n_out {
-                if !is_contained_in(&out_i, &candidates) {
+                if !is_contained_in(out_i, &candidates) {
                     // let dist = self.node_distance(xp, out_i);
                     let dist = ann.nodes[i].p.distance(&ann.nodes[*out_i].p);
                     insert_dist((dist, *out_i), &mut candidates)
@@ -356,7 +356,7 @@ where
         let mut new_n_out = vec![];
 
         while let Some((first, rest)) = candidates.split_first() {
-            let (_, pa) = first.clone(); // pa is p asterisk (p*), which is nearest point to p in this loop
+            let (_, pa) = *first; // pa is p asterisk (p*), which is nearest point to p in this loop
             new_n_out.push(pa);
 
             if new_n_out.len() == self.builder.r {
@@ -386,6 +386,80 @@ where
 
         // `working` is a list of unexplored candidates
         let mut working = list.clone(); // Because list\visited == list at beginning
+
+        fn contains_or_insert(value: (f32, usize), vec: &mut Vec<(f32, usize)>) -> bool {
+            match find_index_by_id(value.1, vec)
+            {
+                Ok(_) => {
+                    true
+                },
+                Err(index) => {
+                    vec.insert(index, value);
+                    false
+                }
+            }
+        }
+
+        fn contains_and_remove(id: usize, vec: &mut Vec<(f32, usize)>) -> bool {
+            match find_index_by_id(id, vec)
+            {
+                Ok(index) => {
+                    vec.remove(index);
+                    true
+                },
+                Err(_) => {
+                    false
+                }
+            }
+        }
+
+        fn find_index_by_id(id: usize, vec: &Vec<(f32, usize)>) -> Result<usize, usize> {
+            vec.binary_search_by(|probe| {
+                probe
+                    .1
+                    .cmp(&id)
+            })
+        }
+
+        fn contains_id(id: usize, vec: &Vec<(f32, usize)>) -> bool {
+            match find_index_by_id(id, vec)
+            {
+                Ok(_) => {
+                    true
+                },
+                Err(_) => {
+                    false
+                }
+            }
+        }
+
+        fn diff_by_ids(a: &Vec<(f32, usize)>, b: &Vec<(f32, usize)>) -> Vec<(f32, usize)> {
+            let mut result = Vec::new();
+            let mut a_idx = 0;
+            let mut b_idx = 0;
+        
+            while a_idx < a.len() && b_idx < b.len() {
+                if a[a_idx].1 == b[b_idx].1 {
+                    a_idx += 1; // Skip common elements
+                    b_idx += 1;
+                } else if a[a_idx].1 < b[b_idx].1 {
+                    // Elements present only in a
+                    result.push(a[a_idx]);
+                    a_idx += 1;
+                } else {
+                    // Ignore elements that exist only in b
+                    b_idx += 1;
+                }
+            }
+        
+            // Add the remaining elements of a (since they do not exist in b)
+            while a_idx < a.len() {
+                result.push(a[a_idx]);
+                a_idx += 1;
+            }
+        
+            result
+        }
         
         // let p∗ ← arg minp∈L\V ||xp − xq||
         while let Some(nearest) = working
@@ -393,18 +467,14 @@ where
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
             .copied()
         {
-
-            // ToDo: refactoring, use union_dist insted
-            if is_contained_in(&nearest.1, &visited) {
+            // If the nearest node is already visited
+            if contains_or_insert(nearest, &mut visited) {
                 continue;
-            } else {
-                insert_dist(nearest, &mut visited);
             }
 
             // If the node is marked as grave, remove from result list. But Its neighboring nodes are explored.
             if self.cemetery.contains(&nearest.1) {
-                remove_from(&nearest, &mut list);
-                // remove_from_v1(&nearest.1, &mut list)
+                contains_and_remove(nearest.1, &mut list);
             }
 
             // update L ← L ∪ Nout(p∗) and V ← V ∪ {p∗}
@@ -412,23 +482,31 @@ where
             for out_i in nearest_n_out {
                 let out_i_point = &self.nodes[*out_i].p;
 
-                if is_contained_in(out_i, &list) || is_contained_in(out_i, &visited) {
-                    // Should check visited as grave point is in visited but not in list.
-                    continue;
+                // if is_contained_in(out_i, &list) || is_contained_in(out_i, &visited) {
+                //     // Should check visited as grave point is in visited but not in list.
+                //     continue;
+                // }
+                if contains_id(*out_i, &list) || contains_id(*out_i, &visited) {
+                    continue
                 }
 
                 let dist = xq.distance(out_i_point);
                 // list.push((dist, node_i));
-                insert_dist((dist, *out_i), &mut list);
+                // insert_dist((dist, *out_i), &mut list);
+                contains_or_insert((dist, *out_i), &mut list);
             }
 
             if list.len() > l {
-                sort_and_resize(&mut list, l)
+                // sort_by_dist_and_resize(&mut list, l)
+                sort_list_by_dist(&mut list);
+                list.truncate(l);
+                sort_list_by_id(&mut list)
             }
 
-            working = set_diff(list.clone(), &visited);}
+            working = diff_by_ids(&list, &visited);
+        }
 
-        sort_and_resize(&mut list, k);
+        sort_by_dist_and_resize(&mut list, k);
         let k_anns = list;
 
         (k_anns, visited)
@@ -473,22 +551,24 @@ fn sort_list_by_dist(list: &mut Vec<(f32, usize)>) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
 }
 
+fn sort_list_by_id(list: &mut Vec<(f32, usize)>) {
+    list.sort_by(|a, b| a.1.cmp(&b.1));
+}
+
 fn find_nearest(c: &mut Vec<(f32, usize)>) -> (f32, usize) {
     sort_list_by_dist(c); // ToDo: Ensure that the arugment list is already sorted.
     c[0]
 }
 
-fn sort_and_resize(list: &mut Vec<(f32, usize)>, size: usize) {
+fn sort_by_dist_and_resize(list: &mut Vec<(f32, usize)>, size: usize) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
     list.truncate(size)
 }
 
 fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
-    vec.iter()
+    !vec.iter()
         .filter(|(_, id)| *id == *i)
-        .collect::<Vec<&(f32, usize)>>()
-        .len()
-        != 0
+        .collect::<Vec<&(f32, usize)>>().is_empty()
 }
 
 fn remove_from(value: &(f32, usize), vec: &mut Vec<(f32, usize)>) {
@@ -520,13 +600,12 @@ fn remove_from(value: &(f32, usize), vec: &mut Vec<(f32, usize)>) {
 
 fn insert_id(value: usize, vec: &mut Vec<usize>) {
     match vec.binary_search(&value) {
-        Ok(_index) => {
-            return; // If already exsits
+        Ok(_index) => {// If already exsits
         }
         Err(index) => {
             vec.insert(index, value);
         }
-    };
+    }
 }
 
 fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
@@ -607,7 +686,6 @@ mod tests {
         let mut i = 0;
 
         let points: Vec<Point> = (0..100)
-            .into_iter()
             .map(|_| {
                 let a = i;
                 i += 1;
@@ -646,7 +724,6 @@ mod tests {
         let mut i = 0;
 
         let points: Vec<Point> = (0..100)
-            .into_iter()
             .map(|_| {
                 let a = i;
                 i += 1;
@@ -667,7 +744,6 @@ mod tests {
         let mut i = 0;
 
         let points: Vec<Point> = (0..1000)
-            .into_iter()
             .map(|_| {
                 let a = i;
                 i += 1;
@@ -705,7 +781,6 @@ mod tests {
         let mut i = 0;
 
         let points: Vec<Point> = (0..500)
-            .into_iter()
             .map(|_| {
                 let a = i;
                 i += 1;
@@ -750,7 +825,7 @@ mod tests {
     #[test]
     fn test_sort_and_resize() {
         let mut a = vec![(0.2, 2), (0.1, 1), (0.3, 3), (0.0, 0)];
-        sort_and_resize(&mut a, 2);
+        sort_by_dist_and_resize(&mut a, 2);
         assert_eq!(a, vec![(0.0, 0), (0.1, 1)])
     }
 

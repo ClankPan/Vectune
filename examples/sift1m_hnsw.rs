@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::io::{Read, Write};
+
 use std::time::Instant;
 
 use indicatif::ProgressBar;
@@ -82,7 +82,7 @@ fn main() {
     let mut hnsw_search: Search = Search::default();
     let hnsw_results = hnsw_map
         .search(&Point(query.to_vec()), &mut hnsw_search)
-        .map(|v| (v.distance.clone(), v.value.clone()))
+        .map(|v| (v.distance, *v.value))
         .collect::<Vec<(f32, usize)>>()
         .clone();
 
@@ -103,7 +103,7 @@ fn main() {
         let mut hnsw_search: Search = Search::default();
         let hnsw_results = hnsw_map
             .search(&Point(query.to_vec()), &mut hnsw_search)
-            .map(|v| v.value.clone() as i32)
+            .map(|v| *v.value as i32)
             .collect::<Vec<i32>>()
             .clone();
 

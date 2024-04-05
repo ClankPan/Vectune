@@ -1,4 +1,4 @@
-use vectune::{Builder as VamanaBuilder, FreshVamanaMap, Point as VamanaPoint};
+use vectune::{FreshVamanaMap, Point as VamanaPoint};
 
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::io::{Read, Write};
+use std::io::{Read};
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
@@ -51,7 +51,7 @@ fn main() {
     let mut file = File::open("test_data/vamana_1m.json").unwrap();
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
-    let mut deserialized_vamana_map: FreshVamanaMap<Point, usize> =
+    let deserialized_vamana_map: FreshVamanaMap<Point, usize> =
         serde_json::from_str(&contents).expect("Failed to deserialize");
 
     let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
@@ -114,9 +114,9 @@ impl VamanaPoint for Point {
         384
     }
     fn to_f32_vec(&self) -> Vec<f32> {
-        self.0.iter().map(|v| *v as f32).collect()
+        self.0.iter().map(|v| *v).collect()
     }
     fn from_f32_vec(a: Vec<f32>) -> Self {
-        Point(a.into_iter().map(|v| v).collect())
+        Point(a.into_iter().collect())
     }
 }

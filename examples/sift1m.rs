@@ -58,7 +58,7 @@ fn main() {
     }
 
     println!("building vamana...");
-    let mut vamana_builder = VamanaBuilder::default();
+    let vamana_builder = VamanaBuilder::default();
     // vamana_builder.set_l(250);
     let vamana_map: FreshVamanaMap<Point, usize> =
         vamana_builder.build(points.clone(), values.clone());
@@ -114,9 +114,9 @@ impl VamanaPoint for Point {
         384
     }
     fn to_f32_vec(&self) -> Vec<f32> {
-        self.0.iter().map(|v| *v as f32).collect()
+        self.0.iter().map(|v| *v).collect()
     }
     fn from_f32_vec(a: Vec<f32>) -> Self {
-        Point(a.into_iter().map(|v| v).collect())
+        Point(a.into_iter().collect())
     }
 }

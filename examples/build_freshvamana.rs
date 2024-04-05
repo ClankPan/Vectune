@@ -33,7 +33,7 @@ fn main() {
     }
 
     // Random query
-    let query_point = &points[rng.gen_range(0..points.len() as usize)];
+    let query_point = &points[rng.gen_range(0..points.len())];
 
     println!("building vamana...");
     let vamana_map: FreshVamanaMap<Point, String> =
@@ -65,9 +65,9 @@ impl VamanaPoint for Point {
         384
     }
     fn to_f32_vec(&self) -> Vec<f32> {
-        self.0.iter().map(|v| *v as f32).collect()
+        self.0.iter().map(|v| *v).collect()
     }
     fn from_f32_vec(a: Vec<f32>) -> Self {
-        Point(a.into_iter().map(|v| v).collect())
+        Point(a.into_iter().collect())
     }
 }

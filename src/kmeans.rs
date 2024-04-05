@@ -118,7 +118,7 @@ where
     pub fn calculate(self, initial_centroids: Vec<P>) -> (Vec<usize>, Vec<P>) {
         let mut centroids: Vec<P> = initial_centroids;
 
-        let mut count = 0;
+        let _count = 0;
 
         loop {
             let assignments: Vec<usize> = self
