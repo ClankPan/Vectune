@@ -1,5 +1,5 @@
-use std::time::Instant;
 use rustc_hash::FxHashSet;
+use std::time::Instant;
 
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -45,7 +45,7 @@ impl Builder {
     }
     pub fn build<P: Point, V: Clone>(self, points: Vec<P>) -> (Vec<(P, Vec<usize>)>, usize) {
         let ann = Vamana::new(points, self);
-            
+
         let nodes = ann
             .nodes
             .into_iter()
@@ -58,17 +58,24 @@ impl Builder {
 }
 
 pub trait Graph<P> {
-    fn insert(&mut self, id: usize, point: P);
-    fn remove(&mut self, id: &usize);
+    fn alloc(&mut self, point: P) -> usize;
+    fn free(&mut self, id: &usize);
     fn cemetery(&self) -> Vec<usize>;
     fn clear_cemetery(&mut self);
-    fn backlink(id: &usize) -> Vec<usize>;
+    fn backlink(&self, id: &usize) -> Vec<usize>;
     fn get(&self, id: &usize) -> (P, Vec<usize>);
     fn size_l(&self) -> usize;
+    fn size_r(&self) -> usize;
+    fn size_a(&self) -> f32;
     fn start_id(&self) -> usize;
+    fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>); // backlinkを処理する必要がある。
 }
 
-pub fn search<P, G>(graph: G, query_point: P, k: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
+pub fn search<P, G>(
+    graph: &mut G,
+    query_point: &P,
+    k: usize,
+) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
 where
     P: Point,
     G: Graph<P>,
@@ -79,11 +86,12 @@ where
 
     let mut visited: Vec<(f32, usize)> = Vec::with_capacity(builder_l * 2);
     let mut touched = FxHashSet::default();
-    touched.reserve(builder_l* 100);
+    touched.reserve(builder_l * 100);
 
     let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(builder_l);
     let s = graph.start_id();
     let (s_point, _) = graph.get(&s);
+    // list.push((query_point.distance(&s_point), s, true));
     list.push((query_point.distance(&s_point), s, true));
     let mut working = Some(list[0]);
     visited.push((list[0].0, list[0].1));
@@ -95,7 +103,7 @@ where
         for out_i in nearest_n_out {
             if !touched.contains(&out_i) {
                 touched.insert(out_i);
-                let (out_point, _) =  graph.get(&out_i);
+                let (out_point, _) = graph.get(&out_i);
                 nouts.push((query_point.distance(&out_point), out_i, false))
             }
         }
@@ -164,6 +172,172 @@ where
     (k_anns, visited)
 }
 
+pub fn insert<P, G>(graph: &mut G, new_p: P)
+where
+    P: Point,
+    G: Graph<P>,
+{
+    let new_id = graph.alloc(new_p.clone());
+    let r = graph.size_r();
+    let a = graph.size_a(); 
+
+    // [L, V] ← GreedySearch(𝑠, 𝑝, 1, 𝐿)
+    let (_list, mut visited) = search(graph, &new_p, 1);
+    // 𝑁out(𝑝) ← RobustPrune(𝑝, V, 𝛼, 𝑅) (Algorithm 3)
+    let n_out = prune(
+        |id| graph.get(id),
+        &mut visited,
+        &r,
+        &a,
+    );
+    
+    // foreach 𝑗 ∈ 𝑁out(𝑝) do
+    for j in &n_out {
+        // |𝑁out(𝑗) ∪ {𝑝}|
+        let (j_point, mut j_n_out) = graph.get(j);
+        j_n_out.push(new_id);
+        j_n_out.sort();
+        j_n_out.dedup();
+        // if |𝑁out(𝑗) ∪ {𝑝}| > 𝑅 then
+        if j_n_out.len() > r {
+            // 𝑁out(𝑗) ← RobustPrune(𝑗, 𝑁out(𝑗) ∪ {𝑝}, 𝛼, 𝑅)
+            let mut j_n_out_with_dist = j_n_out
+                .iter()
+                .map(|j_out_idx| (j_point.distance(&new_p), *j_out_idx))
+                .collect::<Vec<(f32, usize)>>();
+            sort_list_by_dist_v1(&mut j_n_out_with_dist);
+            j_n_out = prune(
+                |id| graph.get(id),
+                &mut j_n_out_with_dist,
+                &r,
+                &a,
+            );
+        }
+        graph.overwirte_out_edges(j, j_n_out);
+    }
+
+}
+
+pub fn delete<P, G>(mut graph: G)
+where
+    P: Point,
+    G: Graph<P>,
+{
+    /* 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅ */
+
+    // Note: 𝐿𝐷 is Deleted List
+    let mut ps = Vec::new();
+
+    // s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅
+    let mut cemetery = graph.cemetery();
+    cemetery.sort();
+    cemetery.dedup();
+
+    for grave_i in &cemetery {
+        ps.extend(graph.backlink(grave_i))
+    }
+    ps.sort();
+    ps.dedup();
+
+    // 𝑝 ∈ 𝑃 \ 𝐿𝐷
+    ps = diff_ids(&ps, &cemetery);
+
+    for p in ps {
+        // D ← 𝑁out(𝑝) ∩ 𝐿𝐷
+        let (_, p_n_out) = graph.get(&p);
+        let d = intersect_ids(&p_n_out, &cemetery);
+        // C ← 𝑁out(𝑝) \ D //initialize candidate list
+        let mut c = diff_ids(&p_n_out, &d);
+
+        // foreach 𝑣 ∈ D do
+        for u in &d {
+            // C ← C ∪ 𝑁out(𝑣)
+            // c = union_ids(&c, &self.nodes[*u].n_out);
+            let (_, u_n_out) = graph.get(u);
+            c.extend(u_n_out);
+            c.sort();
+            c.dedup();
+        }
+
+        // C ← C \ D
+        /*
+        Note:
+            Since D's Nout may contain LD, Why pull the D instead of the LD?
+            I implemented it as shown and it hit data that should have been erased, so I'll fix it to pull LD.
+        */
+        c = diff_ids(&c, &cemetery);
+
+        // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
+        //   let (p_point, _) = self.nodes[p].p.clone();
+        let (p_point, _) = graph.get(&p);
+        let mut c_with_dist: Vec<(f32, usize)> = c
+            .into_iter()
+            .map(|id| (p_point.distance(&graph.get(&id).0), id))
+            .collect();
+
+        sort_list_by_dist_v1(&mut c_with_dist);
+
+        /*
+        Note:
+            Before call robust_prune, clean Nout(p) because robust_prune takes union v and Nout(p) inside.
+            It may ontain deleted points.
+            The original paper does not explicitly state in Algorithm 4.
+        */
+        let new_edges = prune(
+            |id| graph.get(id),
+            &mut c_with_dist,
+            &graph.size_r(),
+            &graph.size_a(),
+        );
+        graph.overwirte_out_edges(&p, new_edges);
+    }
+
+    for grave_i in &cemetery {
+        graph.overwirte_out_edges(grave_i, vec![]); // Backlinks are not defined in the original algorithm but should be deleted here.
+    }
+
+    for grave_i in &cemetery {
+        graph.free(grave_i)
+    }
+
+    graph.clear_cemetery();
+}
+
+fn prune<P, F>(
+    get: F,
+    candidates: &mut Vec<(f32, usize)>,
+    builder_r: &usize,
+    builder_a: &f32,
+) -> Vec<usize>
+where
+    P: Point,
+    F: Fn(&usize) -> (P, Vec<usize>),
+{
+    let mut new_n_out = vec![];
+
+    while let Some((first, rest)) = candidates.split_first() {
+        let (_, pa) = *first; // pa is p asterisk (p*), which is nearest point to p in this loop
+        new_n_out.push(pa);
+
+        if new_n_out.len() == *builder_r {
+            break;
+        }
+        *candidates = rest.to_vec();
+
+        // if α · d(p*, p') <= d(p, p') then remove p' from v
+        candidates.retain(|&(dist_xp_pd, pd)| {
+            // let pa_point = &self.nodes[pa].p;
+            // let pd_point = &self.nodes[pd].p;
+            let (pa_point, _) = get(&pa);
+            let (pd_point, _) = get(&pd);
+            let dist_pa_pd = pa_point.distance(&pd_point);
+
+            builder_a * dist_pa_pd > dist_xp_pd
+        })
+    }
+
+    new_n_out
+}
 
 struct Node<P> {
     n_out: RwLock<Vec<usize>>,
@@ -478,6 +652,26 @@ fn diff_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
     while a_idx < a.len() {
         result.push(a[a_idx]);
         a_idx += 1;
+    }
+
+    result
+}
+
+fn intersect_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+    let mut result = Vec::new();
+    let mut a_idx = 0;
+    let mut b_idx = 0;
+
+    while a_idx < a.len() && b_idx < b.len() {
+        if a[a_idx] == b[b_idx] {
+            result.push(a[a_idx]);
+            a_idx += 1;
+            b_idx += 1;
+        } else if a[a_idx] < b[b_idx] {
+            a_idx += 1;
+        } else {
+            b_idx += 1;
+        }
     }
 
     result
