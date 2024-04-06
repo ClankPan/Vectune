@@ -9,8 +9,6 @@ use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-pub mod pq;
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Builder {
     a: f32,
@@ -190,7 +188,7 @@ where
         &r,
         &a,
     );
-    
+
     // foreach 𝑗 ∈ 𝑁out(𝑝) do
     for j in &n_out {
         // |𝑁out(𝑗) ∪ {𝑝}|
@@ -391,21 +389,12 @@ where
         let points_len = points.len();
 
         /* Find Centroid */
-        let mut average_point: Vec<f32> = vec![0.0; P::dim() as usize];
-        for p in &points {
-            average_point = p
-                .to_f32_vec()
-                .iter()
-                .zip(average_point.iter())
-                .map(|(x, y)| x + y)
-                .collect();
+        let mut sum = points[0].clone();
+        for p in &points[1..] {
+            sum = sum.add(p);
         }
-        let average_point = P::from_f32_vec(
-            average_point
-                .into_iter()
-                .map(|v| v / points_len as f32)
-                .collect(),
-        );
+
+        let average_point = sum.div(&points_len);
         let mut min_dist = f32::MAX;
         let mut centroid = usize::MAX;
         for (i, p) in points.iter().enumerate() {
@@ -734,8 +723,10 @@ fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
 pub trait Point: Clone + Sync {
     fn distance(&self, other: &Self) -> f32;
     fn dim() -> u32;
-    fn to_f32_vec(&self) -> Vec<f32>;
-    fn from_f32_vec(a: Vec<f32>) -> Self;
+    // fn to_f32_vec(&self) -> Vec<f32>;
+    // fn from_f32_vec(a: Vec<f32>) -> Self;
+    fn add(&self, other: &Self) -> Self;
+    fn div(&self, divisor: &usize) -> Self;
 }
 
 #[cfg(test)]
@@ -745,6 +736,14 @@ mod tests {
 
     #[derive(Clone, Debug)]
     struct Point(Vec<u32>);
+    impl Point {
+        fn to_f32_vec(&self) -> Vec<f32> {
+            self.0.iter().map(|v| *v as f32).collect()
+        }
+        fn from_f32_vec(a: Vec<f32>) -> Self {
+            Point(a.into_iter().map(|v| v as u32).collect())
+        }
+    }
     impl VPoint for Point {
         fn distance(&self, other: &Self) -> f32 {
             self.0
@@ -757,11 +756,12 @@ mod tests {
         fn dim() -> u32 {
             12
         }
-        fn to_f32_vec(&self) -> Vec<f32> {
-            self.0.iter().map(|v| *v as f32).collect()
+
+        fn add(&self, other: &Self) -> Self {
+            Point::from_f32_vec(self.to_f32_vec().into_iter().zip(other.to_f32_vec().into_iter()).map(|(x, y)| x + y).collect())
         }
-        fn from_f32_vec(a: Vec<f32>) -> Self {
-            Point(a.into_iter().map(|v| v as u32).collect())
+        fn div(&self, divisor: &usize) -> Self {
+            Point::from_f32_vec(self.to_f32_vec().into_iter().map(|v| v / *divisor as f32).collect())
         }
     }
 
