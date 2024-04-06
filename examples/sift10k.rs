@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::io::{Read, Write};
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
@@ -198,7 +197,7 @@ impl VamanaPoint for Point {
         384
     }
     fn to_f32_vec(&self) -> Vec<f32> {
-        self.0.iter().map(|v| *v).collect()
+        self.0.iter().copied().collect()
     }
     fn from_f32_vec(a: Vec<f32>) -> Self {
         Point(a.into_iter().collect())

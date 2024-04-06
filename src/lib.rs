@@ -155,7 +155,6 @@ where
 
         // edge (in, out)
         let edges: Vec<(RwLock<Vec<usize>>, RwLock<Vec<usize>>)> = (0..points_len)
-            .into_iter()
             .map(|_| {
                 (
                     RwLock::new(Vec::with_capacity(builder.l)),
@@ -190,8 +189,7 @@ where
         let nodes: Vec<Node<P>> = edges
             .into_iter()
             .zip(points)
-            .enumerate()
-            .map(|(_id, ((_n_in, n_out), p))| Node { n_out, p })
+            .map(|((_n_in, n_out), p)| Node { n_out, p })
             .collect();
 
         Self {
@@ -235,7 +233,7 @@ where
 
             {
                 let mut current_n_out = ann.nodes[i].n_out.write();
-                *current_n_out = new_n_out.clone();
+                current_n_out.clone_from(&new_n_out);
             } // unlock the write lock
 
             // for all points j in Nout(σ(i)) do
@@ -330,20 +328,20 @@ where
                     let l_min = list[l_idx];
                     let n_min = nouts[n_idx];
 
-                    let new_min = if l_min.0 <= n_min.0 {
+                    
+
+                    if l_min.0 <= n_min.0 {
                         l_idx += 1;
                         l_min
                     } else {
                         n_idx += 1;
                         n_min
-                    };
-
-                    new_min
+                    }
                 };
 
                 let is_not_visited = !new_min.2;
 
-                if working == None && is_not_visited {
+                if working.is_none() && is_not_visited {
                     new_min.2 = true; // Mark as visited
                     working = Some(new_min);
                     visited.push((new_min.0, new_min.1));
