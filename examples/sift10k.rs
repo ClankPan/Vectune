@@ -14,7 +14,6 @@ use std::fs::File;
 use std::io::{self, BufReader};
 use std::io::{Read, Write};
 
-
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
     let mut reader = BufReader::new(file);
@@ -82,7 +81,6 @@ fn main() {
     //         .map(|(_, i)| *i)
     //         .collect::<Vec<usize>>()
     // );
-
 
     let round = 100;
     let mut hit = 0;
@@ -167,7 +165,6 @@ impl VamanaPoint for Point {
         // Calculate the total sum and then the square root
         (simd_sum + remainder_sum).sqrt()
     }
-
 
     // fn distance(&self, other: &Self) -> f32 {
     //     assert_eq!(self.0.len(), other.0.len());

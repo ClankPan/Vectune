@@ -6,8 +6,8 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand::{rngs::SmallRng, Rng};
 
-use rayon::prelude::*;
 use parking_lot::RwLock;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub mod kmeans;
@@ -66,8 +66,7 @@ where
         Self { ann, values }
     }
     pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
-        let (results, _visited) = self.ann.greedy_search_v2(query_point, 30, self.ann.builder.l);
-        // println!("\n\nvisited:   {:?}\n\n", _visited);
+        let (results, _visited) = self.ann.greedy_search(query_point, 30, self.ann.builder.l);
         results
             .into_iter()
             .map(|(dist, i)| (dist, self.values[i].clone()))
@@ -156,9 +155,14 @@ where
 
         // edge (in, out)
         let edges: Vec<(RwLock<Vec<usize>>, RwLock<Vec<usize>>)> = (0..points_len)
-        .into_iter()
-        .map(|_| (RwLock::new(Vec::with_capacity(builder.l)), RwLock::new(Vec::with_capacity(builder.l))))
-        .collect();
+            .into_iter()
+            .map(|_| {
+                (
+                    RwLock::new(Vec::with_capacity(builder.l)),
+                    RwLock::new(Vec::with_capacity(builder.l)),
+                )
+            })
+            .collect();
 
         (0..points_len).into_par_iter().for_each(|node_i| {
             let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
@@ -166,7 +170,10 @@ where
             let mut new_ids = Vec::with_capacity(builder.l);
             while new_ids.len() < builder.r {
                 let candidate_i = rng.gen_range(0..points_len);
-                if node_i == candidate_i || new_ids.contains(&candidate_i) || edges[candidate_i].0.read().len() >= builder.r + builder.r/2 {
+                if node_i == candidate_i
+                    || new_ids.contains(&candidate_i)
+                    || edges[candidate_i].0.read().len() >= builder.r + builder.r / 2
+                {
                     continue;
                 } else {
                     edges[candidate_i].0.write().push(node_i);
@@ -184,14 +191,8 @@ where
             .into_iter()
             .zip(points)
             .enumerate()
-            .map(|(_id,(( _n_in, n_out), p))| {
-                Node {
-                    n_out,
-                    p,
-                }
-            })
+            .map(|(_id, ((_n_in, n_out), p))| Node { n_out, p })
             .collect();
-        
 
         Self {
             nodes,
@@ -212,7 +213,7 @@ where
             }
 
             // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
-            let (_, visited) = ann.greedy_search_v2(&ann.nodes[i].p, 1, ann.builder.l);
+            let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
 
             // V ← (V ∪ Nout(p)) \ {p}
             let prev_n_out = ann.nodes[i].n_out.read().clone();
@@ -235,12 +236,6 @@ where
             {
                 let mut current_n_out = ann.nodes[i].n_out.write();
                 *current_n_out = new_n_out.clone();
-                // let mut current_n_out = ann.nodes[i].n_out.write().unwrap();
-                // let new_added_ids = diff_ids(&current_n_out, &prev_n_out);
-                // *current_n_out = new_n_out.clone();
-                // for out_i in new_added_ids {
-                //     insert_id(out_i, &mut current_n_out);
-                // }
             } // unlock the write lock
 
             // for all points j in Nout(σ(i)) do
@@ -281,7 +276,7 @@ where
         new_n_out
     }
 
-    fn greedy_search_v2(
+    fn greedy_search(
         &self,
         query_point: &P,
         k: usize,
@@ -290,10 +285,9 @@ where
         // k-anns, visited
         assert!(l >= k);
         let s = self.centroid;
-        let mut visited: Vec<(f32, usize)> = Vec::with_capacity(self.builder.l*2);
-        // let mut touched: HashSet<usize> = HashSet::with_capacity(self.builder.l*100);
+        let mut visited: Vec<(f32, usize)> = Vec::with_capacity(self.builder.l * 2);
         let mut touched = FxHashSet::default();
-        touched.reserve(self.builder.l*100);
+        touched.reserve(self.builder.l * 100);
 
         let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(self.builder.l);
         list.push((query_point.distance(&self.nodes[s].p), s, true));
@@ -302,7 +296,6 @@ where
         touched.insert(list[0].1);
 
         while let Some((_, nearest_i, _)) = working {
-
             let nearest_n_out = self.nodes[nearest_i].n_out.read().clone();
             let mut nouts: Vec<(f32, usize, bool)> = Vec::with_capacity(nearest_n_out.len());
             for out_i in nearest_n_out {
@@ -312,24 +305,8 @@ where
                 }
             }
 
-            // let mut nouts: Vec<(f32, usize, bool)> = self.nodes[nearest_i]
-            //     .n_out
-            //     .read()
-            //     // .clone()
-            //     .iter()
-            //     .filter_map(|out_i| {
-            //         if !touched.contains(out_i) {
-            //             touched.insert(*out_i);
-            //             Some((query_point.distance(&self.nodes[*out_i].p), *out_i, false))
-            //         } else {
-            //             None
-            //         }
-            //     })
-            //     .collect();
-
             sort_list_by_dist(&mut nouts);
 
-            // let new_list = vec![(f32::MAX, usize::MAX, false); self.builder.l];
             let mut new_list = Vec::with_capacity(self.builder.l);
             let mut new_list_idx = 0;
 
@@ -377,7 +354,6 @@ where
             }
 
             list = new_list;
-            // println!("list: {:?}\n\n", list)
         }
 
         let mut k_anns = list
@@ -389,11 +365,8 @@ where
         sort_list_by_dist_v1(&mut visited);
 
         (k_anns, visited)
-
     }
-
 }
-
 
 fn diff_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
     let mut result = Vec::new();
@@ -430,7 +403,6 @@ fn sort_list_by_dist(list: &mut Vec<(f32, usize, bool)>) {
 fn sort_list_by_dist_v1(list: &mut Vec<(f32, usize)>) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
 }
-
 
 fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
     !vec.iter()
@@ -561,12 +533,8 @@ mod tests {
         let ann: FreshVamana<Point> = FreshVamana::new(points, builder);
         let xq = Point(vec![0; Point::dim() as usize]);
         let k = 20;
-        let (k_anns, _visited) = ann.greedy_search_v2(&xq, k, l);
+        let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
-        // println!("\n------- let mut ann: FreshVamana<Point> = FreshVamana::new(points, builder); --------\n");
-        // for node in &ann.nodes {
-        //   println!("{},  \n{:?},  \n{:?}", node.id, node.n_in, node.n_out);
-        // }
         println!();
 
         println!("{:?}", k_anns);
@@ -598,7 +566,7 @@ mod tests {
         let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
         let xq = Point(vec![0; Point::dim() as usize]);
         let k = 10;
-        let (k_anns, _visited) = ann.greedy_search_v2(&xq, k, l);
+        let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
 
         println!("k_anns: {:?}", k_anns);
 
@@ -626,7 +594,6 @@ mod tests {
             ]
         )
     }
-
 
     #[test]
     fn test_is_contained_in() {
@@ -696,24 +663,4 @@ mod tests {
             ]
         )
     }
-
-    // #[test]
-    // fn test_diff_ids() {
-    //     let a = vec![0, 1, 3, 4];
-    //     let b = vec![0, 4];
-    //     let c = diff_ids(&a, &b);
-    //     assert_eq!(c, vec![1, 3]);
-
-    //     let b = vec![0, 4, 5];
-    //     let c = diff_ids(&a, &b);
-    //     assert_eq!(c, vec![1, 3]);
-
-    //     let b = vec![0, 1, 3, 4];
-    //     let c = diff_ids(&a, &b);
-    //     assert_eq!(c, vec![]);
-
-    //     let b = vec![];
-    //     let c = diff_ids(&a, &b);
-    //     assert_eq!(c, a);
-    // }
 }

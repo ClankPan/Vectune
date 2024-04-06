@@ -83,10 +83,6 @@ fn main() {
     //         .collect::<Vec<usize>>()
     // );
 
-
-
-
-
     let round = 100;
     let mut hit = 0;
     // println!("query_vectors len: {:?}", &query_vectors[0..100]);
