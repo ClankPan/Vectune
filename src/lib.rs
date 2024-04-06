@@ -7,7 +7,6 @@ use rand::SeedableRng;
 use rand::{rngs::SmallRng, Rng};
 
 use rayon::prelude::*;
-// use std::sync::RwLock;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +50,6 @@ impl Builder {
     }
 }
 
-// #[derive(Serialize, Deserialize)]
 pub struct FreshVamanaMap<P, V> {
     pub ann: FreshVamana<P>,
     values: Vec<V>,
@@ -77,14 +75,11 @@ where
     }
 }
 
-// #[derive(Serialize, Deserialize)]
 struct Node<P> {
-    n_out: RwLock<Vec<usize>>, // has pointer. ToDo: should use PQ to resuce memory accesses.
-    n_in: Vec<usize>,
+    n_out: RwLock<Vec<usize>>,
     p: P,
 }
 
-// #[derive(Serialize, Deserialize)]
 pub struct FreshVamana<P> {
     nodes: Vec<Node<P>>,
     centroid: usize,
@@ -163,7 +158,6 @@ where
             .enumerate()
             .map(|(_id, p)| Node {
                 n_out: RwLock::new(Vec::new()),
-                n_in: Vec::new(),
                 p,
             })
             .collect();
@@ -181,11 +175,10 @@ where
                     n_out_cout += 1;
                 }
                 let out_node_i = working[working_i];
-                // insert_id(node_i, &mut nodes[out_node_i].n_in); // ToDo: refactor , use self.make_edge()
                 insert_id(out_node_i, &mut nodes[node_i].n_out.write());
 
                 // Since prevents the creation of nodes that are not referenced by anyone during initialization,
-                // ensure that all input edges are R nodes
+                // Ensure that all input edges are R nodes
                 if nodes[out_node_i].n_in.len() == builder.r {
                     working.remove(working_i);
                 }
