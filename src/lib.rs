@@ -114,7 +114,7 @@ where
         ann
     }
 
-    fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
+    fn random_graph_init(points: Vec<P>, builder: Builder, _rng: &mut SmallRng) -> Self {
         if points.is_empty() {
             return Self {
                 nodes: Vec::new(),
@@ -153,37 +153,45 @@ where
         }
 
         /* Get random connected graph */
-        let nodes: Vec<Node<P>> = points
-            .into_iter()
-            .enumerate()
-            .map(|(_id, p)| Node {
-                n_out: RwLock::new(Vec::new()),
-                p,
-            })
-            .collect();
 
-        let mut working: Vec<usize> = (0..nodes.len()).collect();
-        let node_len = nodes.len();
+        // edge (in, out)
+        let edges: Vec<(RwLock<Vec<usize>>, RwLock<Vec<usize>>)> = (0..points_len)
+        .into_iter()
+        .map(|_| (RwLock::new(Vec::with_capacity(builder.l)), RwLock::new(Vec::with_capacity(builder.l))))
+        .collect();
 
-        for node_i in 0..node_len {
-            let mut n_out_cout = 0;
-            while n_out_cout < builder.r {
-                let working_i = rng.gen_range(0..working.len());
-                if working_i == node_i {
+        (0..points_len).into_par_iter().for_each(|node_i| {
+            let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
+
+            let mut new_ids = Vec::with_capacity(builder.l);
+            while new_ids.len() < builder.r {
+                let candidate_i = rng.gen_range(0..points_len);
+                if node_i == candidate_i || new_ids.contains(&candidate_i) || edges[candidate_i].0.read().len() >= builder.r + builder.r/2 {
                     continue;
                 } else {
-                    n_out_cout += 1;
-                }
-                let out_node_i = working[working_i];
-                insert_id(out_node_i, &mut nodes[node_i].n_out.write());
-
-                // Since prevents the creation of nodes that are not referenced by anyone during initialization,
-                // Ensure that all input edges are R nodes
-                if nodes[out_node_i].n_in.len() == builder.r {
-                    working.remove(working_i);
+                    edges[candidate_i].0.write().push(node_i);
+                    new_ids.push(candidate_i);
                 }
             }
-        }
+
+            let mut n_out = edges[node_i].1.write();
+            *n_out = new_ids;
+        });
+
+        println!("make nodes");
+
+        let nodes: Vec<Node<P>> = edges
+            .into_iter()
+            .zip(points)
+            .enumerate()
+            .map(|(_id,(( _n_in, n_out), p))| {
+                Node {
+                    n_out,
+                    p,
+                }
+            })
+            .collect();
+        
 
         Self {
             nodes,
@@ -503,38 +511,6 @@ mod tests {
         }
         fn from_f32_vec(a: Vec<f32>) -> Self {
             Point(a.into_iter().map(|v| v as u32).collect())
-        }
-    }
-
-    #[test]
-    fn test_random_init_v2() {
-        let builder = Builder::default();
-        // let seed = builder.seed;
-        let seed: u64 = 11923543545843533243;
-        let mut rng = SmallRng::seed_from_u64(seed);
-        println!("seed: {}", seed);
-
-        let mut i = 0;
-
-        let points: Vec<Point> = (0..100)
-            .map(|_| {
-                let a = i;
-                i += 1;
-                Point(vec![a; Point::dim() as usize])
-            })
-            .collect();
-
-        let point_len = points.len();
-
-        let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
-
-        for node_i in 0..point_len {
-            for out_i in ann.nodes[node_i].n_out.read().iter() {
-                assert!(ann.nodes[*out_i].n_in.contains(&node_i))
-            }
-            for in_i in &ann.nodes[node_i].n_in {
-                assert!(ann.nodes[*in_i].n_out.read().contains(&node_i))
-            }
         }
     }
 
