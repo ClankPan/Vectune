@@ -10,7 +10,6 @@ use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-pub mod kmeans;
 pub mod pq;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -45,47 +44,133 @@ impl Builder {
     pub fn set_seed(&mut self, seed: u64) {
         self.seed = seed;
     }
-    pub fn build<P: Point, V: Clone>(self, points: Vec<P>, values: Vec<V>) -> FreshVamanaMap<P, V> {
-        FreshVamanaMap::new(points, values, self)
+    pub fn build<P: Point, V: Clone>(self, points: Vec<P>) -> (Vec<(P, Vec<usize>)>, usize) {
+        let ann = Vamana::new(points, self);
+            
+        let nodes = ann
+            .nodes
+            .into_iter()
+            .map(|node| (node.p, node.n_out.into_inner()))
+            .collect();
+        let s = ann.centroid;
+
+        (nodes, s)
     }
 }
 
-pub struct FreshVamanaMap<P, V> {
-    pub ann: FreshVamana<P>,
-    values: Vec<V>,
+pub trait Graph<P> {
+    fn get(&self, id: &usize) -> (P, Vec<usize>);
+    fn size_l(&self) -> usize;
 }
 
-impl<P, V> FreshVamanaMap<P, V>
+pub fn search<P, G>(graph: G, s: usize, query_point: P, k: usize, cemetery: Vec<usize>) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
 where
     P: Point,
-    V: Clone,
+    G: Graph<P>,
 {
-    fn new(points: Vec<P>, values: Vec<V>, builder: Builder) -> Self {
-        let ann = FreshVamana::new(points, builder);
+    // k-anns, visited
+    let builder_l = graph.size_l();
+    assert!(builder_l >= k);
 
-        Self { ann, values }
+    let mut visited: Vec<(f32, usize)> = Vec::with_capacity(builder_l * 2);
+    let mut touched = FxHashSet::default();
+    touched.reserve(builder_l* 100);
+
+    let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(builder_l);
+    let (s_point, _) = graph.get(&s);
+    list.push((query_point.distance(&s_point), s, true));
+    let mut working = Some(list[0]);
+    visited.push((list[0].0, list[0].1));
+    touched.insert(list[0].1);
+
+    while let Some((_, nearest_i, _)) = working {
+        let (_, nearest_n_out) = graph.get(&nearest_i);
+        let mut nouts: Vec<(f32, usize, bool)> = Vec::with_capacity(nearest_n_out.len());
+        for out_i in nearest_n_out {
+            if !touched.contains(&out_i) {
+                touched.insert(out_i);
+                let (out_point, _) =  graph.get(&out_i);
+                nouts.push((query_point.distance(&out_point), out_i, false))
+            }
+        }
+
+        sort_list_by_dist(&mut nouts);
+
+        let mut new_list = Vec::with_capacity(builder_l);
+        let mut new_list_idx = 0;
+
+        let mut l_idx = 0; // Index for list
+        let mut n_idx = 0; // Index for dists
+
+        working = None;
+
+        while new_list_idx < builder_l {
+            let mut new_min = if l_idx >= list.len() && n_idx >= nouts.len() {
+                break;
+            } else if l_idx >= list.len() {
+                let new_min = nouts[n_idx];
+                n_idx += 1;
+                new_min
+            } else if n_idx >= nouts.len() {
+                let new_min = list[l_idx];
+                l_idx += 1;
+                new_min
+            } else {
+                let l_min = list[l_idx];
+                let n_min = nouts[n_idx];
+
+                if l_min.0 <= n_min.0 {
+                    l_idx += 1;
+                    l_min
+                } else {
+                    n_idx += 1;
+                    n_min
+                }
+            };
+
+            let is_not_visited = !new_min.2;
+
+            if working.is_none() && is_not_visited {
+                new_min.2 = true; // Mark as visited
+                working = Some(new_min);
+                visited.push((new_min.0, new_min.1));
+            }
+
+            // Deleted and visited nodes are not added.
+            // Even if it is deleted, its neighboring nodes are included in the search candidates.
+            if !cemetery.contains(&new_min.1) || is_not_visited {
+                new_list.push(new_min);
+                new_list_idx += 1;
+            }
+        }
+
+        list = new_list;
     }
-    pub fn search(&self, query_point: &P) -> Vec<(f32, V)> {
-        let (results, _visited) = self.ann.greedy_search(query_point, 30, self.ann.builder.l);
-        results
-            .into_iter()
-            .map(|(dist, i)| (dist, self.values[i].clone()))
-            .collect()
-    }
+
+    let mut k_anns = list
+        .into_iter()
+        .map(|(dist, id, _)| (dist, id))
+        .collect::<Vec<(f32, usize)>>();
+    k_anns.truncate(k);
+
+    sort_list_by_dist_v1(&mut visited);
+
+    (k_anns, visited)
 }
+
 
 struct Node<P> {
     n_out: RwLock<Vec<usize>>,
     p: P,
 }
 
-pub struct FreshVamana<P> {
+pub struct Vamana<P> {
     nodes: Vec<Node<P>>,
     centroid: usize,
-    pub builder: Builder,
+    builder: Builder,
 }
 
-impl<P> FreshVamana<P>
+impl<P> Vamana<P>
 where
     P: Point,
 {
@@ -96,14 +181,14 @@ where
         // Initialize Random Graph
         println!("rand init phase");
         let start_time = Instant::now();
-        let mut ann = FreshVamana::<P>::random_graph_init(points, builder, &mut rng);
+        let mut ann = Vamana::<P>::random_graph_init(points, builder, &mut rng);
         println!(
             "\nrand init time: {:?}",
             Instant::now().duration_since(start_time)
         );
 
         // Prune Edges
-        FreshVamana::<P>::indexing(&mut ann, &mut rng);
+        Vamana::<P>::indexing(&mut ann, &mut rng);
 
         println!(
             "\ntotal indexing time: {:?}",
@@ -199,7 +284,7 @@ where
         }
     }
 
-    fn indexing(ann: &mut FreshVamana<P>, rng: &mut SmallRng) {
+    fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
         let node_len = ann.nodes.len();
         let mut shuffled: Vec<usize> = (0..node_len).collect();
         shuffled.shuffle(rng);
@@ -327,8 +412,6 @@ where
                 } else {
                     let l_min = list[l_idx];
                     let n_min = nouts[n_idx];
-
-                    
 
                     if l_min.0 <= n_min.0 {
                         l_idx += 1;
@@ -460,8 +543,6 @@ mod tests {
 
     use super::{Point as VPoint, *};
 
-    mod pq;
-
     #[derive(Clone, Debug)]
     struct Point(Vec<u32>);
     impl VPoint for Point {
@@ -489,7 +570,7 @@ mod tests {
         let builder = Builder::default();
         let mut rng = SmallRng::seed_from_u64(builder.seed);
 
-        let ann: FreshVamana<Point> = FreshVamana::random_graph_init(Vec::new(), builder, &mut rng);
+        let ann: Vamana<Point> = Vamana::random_graph_init(Vec::new(), builder, &mut rng);
         assert_eq!(ann.nodes.len(), 0);
     }
 
@@ -507,7 +588,7 @@ mod tests {
                 Point(vec![a; Point::dim() as usize])
             })
             .collect();
-        let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+        let ann: Vamana<Point> = Vamana::random_graph_init(points, builder, &mut rng);
         assert_eq!(ann.centroid, 49);
     }
 
@@ -528,7 +609,7 @@ mod tests {
             })
             .collect();
 
-        let ann: FreshVamana<Point> = FreshVamana::new(points, builder);
+        let ann: Vamana<Point> = Vamana::new(points, builder);
         let xq = Point(vec![0; Point::dim() as usize]);
         let k = 20;
         let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
@@ -561,7 +642,7 @@ mod tests {
             })
             .collect();
 
-        let ann: FreshVamana<Point> = FreshVamana::random_graph_init(points, builder, &mut rng);
+        let ann: Vamana<Point> = Vamana::random_graph_init(points, builder, &mut rng);
         let xq = Point(vec![0; Point::dim() as usize]);
         let k = 10;
         let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
