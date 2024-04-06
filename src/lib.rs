@@ -1,5 +1,4 @@
 use std::time::Instant;
-
 use rustc_hash::FxHashSet;
 
 use rand::seq::SliceRandom;
@@ -59,11 +58,17 @@ impl Builder {
 }
 
 pub trait Graph<P> {
+    fn insert(&mut self, id: usize, point: P);
+    fn remove(&mut self, id: &usize);
+    fn cemetery(&self) -> Vec<usize>;
+    fn clear_cemetery(&mut self);
+    fn backlink(id: &usize) -> Vec<usize>;
     fn get(&self, id: &usize) -> (P, Vec<usize>);
     fn size_l(&self) -> usize;
+    fn start_id(&self) -> usize;
 }
 
-pub fn search<P, G>(graph: G, s: usize, query_point: P, k: usize, cemetery: Vec<usize>) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
+pub fn search<P, G>(graph: G, query_point: P, k: usize) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
 where
     P: Point,
     G: Graph<P>,
@@ -77,6 +82,7 @@ where
     touched.reserve(builder_l* 100);
 
     let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(builder_l);
+    let s = graph.start_id();
     let (s_point, _) = graph.get(&s);
     list.push((query_point.distance(&s_point), s, true));
     let mut working = Some(list[0]);
@@ -138,7 +144,7 @@ where
 
             // Deleted and visited nodes are not added.
             // Even if it is deleted, its neighboring nodes are included in the search candidates.
-            if !cemetery.contains(&new_min.1) || is_not_visited {
+            if !graph.cemetery().contains(&new_min.1) || is_not_visited {
                 new_list.push(new_min);
                 new_list_idx += 1;
             }
