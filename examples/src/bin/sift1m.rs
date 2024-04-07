@@ -2,15 +2,13 @@
 use std::simd::f32x4;
 
 use vectune::{Builder as VamanaBuilder, Point as VectunePoint, Graph as VectuneGraph};
-
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-
 use serde::{Deserialize, Serialize};
-
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{self, BufReader};
+use indicatif::ProgressBar;
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
@@ -62,6 +60,7 @@ fn main() {
 
     println!("building vamana...");
     let vamana_builder = VamanaBuilder::default();
+    // let (nodes, centroid) = vamana_builder.progress(ProgressBar::new(1000)).build(points);
     let (nodes, centroid) = vamana_builder.build(points);
 
     let mut graph = Graph {
