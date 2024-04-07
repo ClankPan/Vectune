@@ -199,7 +199,7 @@ where
     (k_anns, visited)
 }
 
-pub fn insert<P, G>(graph: &mut G, new_p: P)
+pub fn insert<P, G>(graph: &mut G, new_p: P) -> usize
 where
     P: Point,
     G: Graph<P>,
@@ -232,8 +232,13 @@ where
         }
         graph.overwirte_out_edges(j, j_n_out);
     }
+
+    new_id
 }
 
+/*
+ToDo: Parallizing
+*/
 pub fn delete<P, G>(graph: &mut G)
 where
     P: Point,
@@ -1117,6 +1122,109 @@ mod tests {
 
         let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
         assert_eq!(diff, expected);
+
+    }
+
+
+    #[test]
+    fn test_insert_new_point() {
+        let builder = Builder::default();
+        println!("seed: {}", builder.seed);
+
+        let mut i = 0;
+
+        let points: Vec<Point> = (0..100)
+            .map(|_| {
+                let a = i;
+                i += 1;
+                Point(vec![a; Point::dim() as usize])
+            })
+            .collect();
+
+        let (nodes, centroid) = builder.build(points);
+
+
+        for (node_i, node) in nodes.iter().enumerate() {
+            println!("id: {}, {:?}", node_i, node.1);
+        }
+
+
+        let backlinks: Vec<Vec<usize>> = nodes
+            .iter()
+            .enumerate()
+            .map(|(node_i, node)| {
+                node.1
+                    .iter()
+                    .map(|out_i| (*out_i, node_i))
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .sorted_by_key(|&(k, _)| k)
+            .group_by(|&(k, _)| k)
+            .into_iter()
+            .map(|(_key, group)|
+                group
+                    .into_iter()
+                    .map(|(_, i)| i)
+                    .sorted()
+                    .collect::<Vec<usize>>())
+            .collect();
+
+        let mut graph = Graph {
+            nodes,
+            backlinks,
+            cemetery: Vec::new(),
+            centroid,
+        };
+
+        // let ann: Vamana<Point> = Vamana::random_graph_init(points, builder, &mut rng);
+        let xq = Point(vec![0; Point::dim() as usize]);
+        let k = 10;
+        // let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+        let (k_anns, _visited) = super::search(&mut graph, &xq, k);
+
+        println!("k_anns: {:?}", k_anns);
+
+        for i in 0..10 {
+            assert_eq!(k_anns[i].1, i);
+        }
+
+        // mark as grave
+        graph.cemetery.push(k_anns[3].1);
+        graph.cemetery.push(k_anns[5].1);
+        graph.cemetery.push(k_anns[9].1);
+
+        let expected = vec![k_anns[3].1, k_anns[5].1, k_anns[9].1];
+        let expected_p = vec![graph.nodes[3].0.clone(), graph.nodes[5].0.clone(), graph.nodes[9].0.clone()];
+
+        super::delete(&mut graph);
+
+        let (k_anns_intered, _visited) = super::search(&mut graph, &xq, k);
+
+        for (node_i, node) in graph.nodes.iter().enumerate() {
+            println!("id: {}, {:?}", node_i, node.1);
+        }
+
+        assert_ne!(k_anns_intered, k_anns);
+
+        let mut k_anns_ids: Vec<usize> = k_anns.into_iter().map(|(_, id)| id).collect();
+        let k_anns_intered_ids: Vec<usize> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+
+        let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
+        assert_eq!(diff, expected);
+
+        let mut new_ids = vec![];
+        for new_point in expected_p {
+            let new_id = super::insert(&mut graph, new_point);
+            new_ids.push(new_id)
+        }
+
+        let (k_anns_inserted, _visited) = super::search(&mut graph, &xq, k);
+        let k_anns_inserted_ids: Vec<usize> = k_anns_inserted.into_iter().map(|(_, id)| id).collect();
+        k_anns_ids[3] = new_ids[0];
+        k_anns_ids[5] = new_ids[1];
+        k_anns_ids[9] = new_ids[2];
+        assert_eq!(k_anns_ids, k_anns_inserted_ids);
 
     }
 
