@@ -1,14 +1,14 @@
 #![feature(portable_simd)]
 use std::simd::f32x4;
 
-use vectune::{Builder as VamanaBuilder, Point as VectunePoint, Graph as VectuneGraph};
+use byteorder::{LittleEndian, ReadBytesExt};
+use indicatif::ProgressBar;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{self, BufReader};
-use indicatif::ProgressBar;
+use vectune::{Builder as VamanaBuilder, Graph as VectuneGraph, Point as VectunePoint};
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
@@ -54,13 +54,15 @@ fn main() {
     let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
 
     let mut points = Vec::new();
-    for vec in base_vectors{
+    for vec in base_vectors {
         points.push(Point(vec.to_vec()));
     }
 
     println!("building vamana...");
     let vamana_builder = VamanaBuilder::default();
-    let (nodes, centroid) = vamana_builder.progress(ProgressBar::new(1000)).build(points);
+    let (nodes, centroid) = vamana_builder
+        .progress(ProgressBar::new(1000))
+        .build(points);
 
     let mut graph = Graph {
         nodes,
@@ -214,10 +216,20 @@ impl VectunePoint for Point {
     }
 
     fn add(&self, other: &Self) -> Self {
-        Point::from_f32_vec(self.to_f32_vec().into_iter().zip(other.to_f32_vec().into_iter()).map(|(x, y)| x + y).collect())
+        Point::from_f32_vec(
+            self.to_f32_vec()
+                .into_iter()
+                .zip(other.to_f32_vec().into_iter())
+                .map(|(x, y)| x + y)
+                .collect(),
+        )
     }
     fn div(&self, divisor: &usize) -> Self {
-        Point::from_f32_vec(self.to_f32_vec().into_iter().map(|v| v / *divisor as f32).collect())
+        Point::from_f32_vec(
+            self.to_f32_vec()
+                .into_iter()
+                .map(|v| v / *divisor as f32)
+                .collect(),
+        )
     }
-
 }
