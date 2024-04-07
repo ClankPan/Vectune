@@ -1,0 +1,20 @@
+[package]
+name = "vectune"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = "0.12.1"
+parking_lot = "0.12.1"
+# kmeans = "0.2.1"
+rand = { version = "0.8", features = ["small_rng"] }
+rayon = "1.10.0"
+rustc-hash = "1.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+getrandom = { version = "0.2", optional = true }
+indicatif = { version = "0.17", optional = true }
+
+[features]
+wasm32-unkown-unknown = ["getrandom/custom"]
+progress-bar = ["indicatif"]
