@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 itertools = "0.12.1"
 parking_lot = "0.12.1"
-# kmeans = "0.2.1"
 rand = { version = "0.8", features = ["small_rng"] }
 rayon = "1.10.0"
 rustc-hash = "1.1.0"

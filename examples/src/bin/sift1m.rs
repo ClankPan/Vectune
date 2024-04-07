@@ -60,8 +60,7 @@ fn main() {
 
     println!("building vamana...");
     let vamana_builder = VamanaBuilder::default();
-    // let (nodes, centroid) = vamana_builder.progress(ProgressBar::new(1000)).build(points);
-    let (nodes, centroid) = vamana_builder.build(points);
+    let (nodes, centroid) = vamana_builder.progress(ProgressBar::new(1000)).build(points);
 
     let mut graph = Graph {
         nodes,
@@ -109,11 +108,11 @@ impl<P> VectuneGraph<P> for Graph<P>
 where
     P: VectunePoint,
 {
-    fn alloc(&mut self, point: P) -> usize {
+    fn alloc(&mut self, _point: P) -> usize {
         todo!()
     }
 
-    fn free(&mut self, id: &usize) {
+    fn free(&mut self, _id: &usize) {
         todo!()
     }
 

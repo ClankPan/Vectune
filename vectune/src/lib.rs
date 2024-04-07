@@ -7,7 +7,6 @@ use rand::{rngs::SmallRng, Rng};
 
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "indicatif")]
 use std::sync::atomic::{self, AtomicUsize};
@@ -500,10 +499,10 @@ where
         shuffled.shuffle(rng);
 
         // for 1 ≤ i ≤ n do
-        shuffled.into_par_iter().enumerate().for_each(|(count, i)| {
-            if count % 10000 == 0 {
-                println!("id : {}\t/{}", count, ann.nodes.len());
-            }
+        shuffled.into_par_iter().enumerate().for_each(|(_count, i)| {
+            // if count % 10000 == 0 {
+            //     println!("id : {}\t/{}", count, ann.nodes.len());
+            // }
 
             // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
             let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
@@ -779,7 +778,7 @@ fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
 #[cfg(test)]
 mod tests {
 
-    use super::{Point as VPoint, *};
+    use super::{Point as VPoint, Graph as VGraph, *};
 
     #[derive(Clone, Debug)]
     struct Point(Vec<u32>);
@@ -812,6 +811,66 @@ mod tests {
         }
     }
 
+    struct Graph<P>
+    where
+        P: VPoint,
+    {
+        nodes: Vec<(P, Vec<usize>)>,
+        backlinks: Vec<Vec<usize>>,
+        cemetery: Vec<usize>,
+        centroid: usize,
+    }
+
+    impl<P> VGraph<P> for Graph<P>
+    where
+        P: VPoint,
+    {
+        fn alloc(&mut self, _point: P) -> usize {
+            todo!()
+        }
+
+        fn free(&mut self, _id: &usize) {
+            todo!()
+        }
+
+        fn cemetery(&self) -> Vec<usize> {
+            self.cemetery.clone()
+        }
+
+        fn clear_cemetery(&mut self) {
+            self.cemetery = Vec::new();
+        }
+
+        fn backlink(&self, id: &usize) -> Vec<usize> {
+            self.backlinks[*id].clone()
+        }
+
+        fn get(&self, id: &usize) -> (P, Vec<usize>) {
+            let node = &self.nodes[*id];
+            node.clone()
+        }
+
+        fn size_l(&self) -> usize {
+            125
+        }
+
+        fn size_r(&self) -> usize {
+            70
+        }
+
+        fn size_a(&self) -> f32 {
+            2.0
+        }
+
+        fn start_id(&self) -> usize {
+            self.centroid
+        }
+
+        fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
+            self.nodes[*id].1 = edges;
+        }
+    }
+
     #[test]
     fn fresh_disk_ann_new_empty() {
         let builder = Builder::default();
@@ -841,7 +900,7 @@ mod tests {
 
     #[test]
     fn test_vamana_build() {
-        let builder = Builder::default().set_l(30);
+        let builder = Builder::default();
         // builder.set_seed(11677721592066047712);
         let l = builder.l;
 
@@ -869,11 +928,48 @@ mod tests {
     }
 
     #[test]
-    fn greedy_search() {
-        let builder = Builder::default().set_l(30);
+    fn search_api() {
+        let builder = Builder::default();
         println!("seed: {}", builder.seed);
-        // let seed = builder.seed;
-        let seed: u64 = 17674802184506369839;
+
+        let mut i = 0;
+
+        let points: Vec<Point> = (0..500)
+            .map(|_| {
+                let a = i;
+                i += 1;
+                Point(vec![a; Point::dim() as usize])
+            })
+            .collect();
+
+        let (nodes, centroid) = builder.build(points);
+
+        let mut graph = Graph {
+            nodes,
+            backlinks: Vec::new(),
+            cemetery: Vec::new(),
+            centroid,
+        };
+
+        // let ann: Vamana<Point> = Vamana::random_graph_init(points, builder, &mut rng);
+        let xq = Point(vec![0; Point::dim() as usize]);
+        let k = 10;
+        // let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+        let (k_anns, _visited) = super::search(&mut graph, &xq, k);
+
+        println!("k_anns: {:?}", k_anns);
+
+        for i in 0..10 {
+            assert_eq!(k_anns[i].1, i);
+        }
+    }
+
+    #[test]
+    fn greedy_search() {
+        let builder = Builder::default();
+        println!("seed: {}", builder.seed);
+        let seed = builder.seed;
+        // let seed: u64 = 17674802184506369839;
         let mut rng = SmallRng::seed_from_u64(seed);
         let l = builder.l;
 
@@ -898,6 +994,7 @@ mod tests {
             assert_eq!(k_anns[i].1, i);
         }
     }
+    
 
     #[test]
     fn test_sort_list_by_dist() {
