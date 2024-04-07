@@ -71,7 +71,12 @@ impl Builder {
         let nodes = ann
             .nodes
             .into_iter()
-            .map(|node| (node.p, node.n_out.into_inner().into_iter().sorted().collect()))
+            .map(|node| {
+                (
+                    node.p,
+                    node.n_out.into_inner().into_iter().sorted().collect(),
+                )
+            })
             .collect();
         let s = ann.centroid;
 
@@ -84,7 +89,7 @@ impl Builder {
     }
 }
 
-pub trait Graph<P> {
+pub trait GraphInterface<P> {
     fn alloc(&mut self, point: P) -> usize;
     fn free(&mut self, id: &usize);
     fn cemetery(&self) -> Vec<usize>;
@@ -105,7 +110,7 @@ pub fn search<P, G>(
 ) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
 where
     P: Point,
-    G: Graph<P>,
+    G: GraphInterface<P>,
 {
     // k-anns, visited
     let builder_l = graph.size_l();
@@ -202,7 +207,7 @@ where
 pub fn insert<P, G>(graph: &mut G, new_p: P) -> usize
 where
     P: Point,
-    G: Graph<P>,
+    G: GraphInterface<P>,
 {
     let new_id = graph.alloc(new_p.clone());
     let r = graph.size_r();
@@ -242,7 +247,7 @@ ToDo: Parallizing
 pub fn delete<P, G>(graph: &mut G)
 where
     P: Point,
-    G: Graph<P>,
+    G: GraphInterface<P>,
 {
     /* 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅ */
 
@@ -772,7 +777,7 @@ fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
 #[cfg(test)]
 mod tests {
 
-    use super::{Graph as VGraph, Point as VPoint, *};
+    use super::{GraphInterface as VGraph, Point as VPoint, *};
 
     #[derive(Clone, Debug)]
     struct Point(Vec<u32>);
@@ -1054,11 +1059,9 @@ mod tests {
 
         let (nodes, centroid) = builder.build(points);
 
-
         for (node_i, node) in nodes.iter().enumerate() {
             println!("id: {}, {:?}", node_i, node.1);
         }
-
 
         let backlinks: Vec<Vec<usize>> = nodes
             .iter()
@@ -1073,12 +1076,13 @@ mod tests {
             .sorted_by_key(|&(k, _)| k)
             .group_by(|&(k, _)| k)
             .into_iter()
-            .map(|(_key, group)|
+            .map(|(_key, group)| {
                 group
                     .into_iter()
                     .map(|(_, i)| i)
                     .sorted()
-                    .collect::<Vec<usize>>())
+                    .collect::<Vec<usize>>()
+            })
             .collect();
 
         let mut graph = Graph {
@@ -1122,9 +1126,7 @@ mod tests {
 
         let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
         assert_eq!(diff, expected);
-
     }
-
 
     #[test]
     fn test_insert_new_point() {
@@ -1143,11 +1145,9 @@ mod tests {
 
         let (nodes, centroid) = builder.build(points);
 
-
         for (node_i, node) in nodes.iter().enumerate() {
             println!("id: {}, {:?}", node_i, node.1);
         }
-
 
         let backlinks: Vec<Vec<usize>> = nodes
             .iter()
@@ -1162,12 +1162,13 @@ mod tests {
             .sorted_by_key(|&(k, _)| k)
             .group_by(|&(k, _)| k)
             .into_iter()
-            .map(|(_key, group)|
+            .map(|(_key, group)| {
                 group
                     .into_iter()
                     .map(|(_, i)| i)
                     .sorted()
-                    .collect::<Vec<usize>>())
+                    .collect::<Vec<usize>>()
+            })
             .collect();
 
         let mut graph = Graph {
@@ -1195,7 +1196,11 @@ mod tests {
         graph.cemetery.push(k_anns[9].1);
 
         let expected = vec![k_anns[3].1, k_anns[5].1, k_anns[9].1];
-        let expected_p = vec![graph.nodes[3].0.clone(), graph.nodes[5].0.clone(), graph.nodes[9].0.clone()];
+        let expected_p = vec![
+            graph.nodes[3].0.clone(),
+            graph.nodes[5].0.clone(),
+            graph.nodes[9].0.clone(),
+        ];
 
         super::delete(&mut graph);
 
@@ -1220,12 +1225,12 @@ mod tests {
         }
 
         let (k_anns_inserted, _visited) = super::search(&mut graph, &xq, k);
-        let k_anns_inserted_ids: Vec<usize> = k_anns_inserted.into_iter().map(|(_, id)| id).collect();
+        let k_anns_inserted_ids: Vec<usize> =
+            k_anns_inserted.into_iter().map(|(_, id)| id).collect();
         k_anns_ids[3] = new_ids[0];
         k_anns_ids[5] = new_ids[1];
         k_anns_ids[9] = new_ids[2];
         assert_eq!(k_anns_ids, k_anns_inserted_ids);
-
     }
 
     #[test]
