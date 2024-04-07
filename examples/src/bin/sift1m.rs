@@ -1,7 +1,7 @@
 #![feature(portable_simd)]
 use std::simd::f32x4;
 
-use vectune::{Builder as VamanaBuilder, FreshVamanaMap, Point as VamanaPoint};
+use vectune::{Builder as VamanaBuilder, Point as VectunePoint, Graph as VectuneGraph};
 
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -50,38 +50,28 @@ fn main() {
     let seed: u64 = 11923543545843533243;
     let mut rng = SmallRng::seed_from_u64(seed);
 
+    // Locad test data
     let base_vectors = read_fvecs("./test_data/sift/sift_base.fvecs").unwrap();
+    let query_vectors = read_fvecs("./test_data/sift/sift_query.fvecs").unwrap();
+    let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
 
     let mut points = Vec::new();
-    let mut values = Vec::new();
-    for (i, vec) in base_vectors.iter().enumerate() {
+    for vec in base_vectors{
         points.push(Point(vec.to_vec()));
-        values.push(i);
     }
 
     println!("building vamana...");
     let vamana_builder = VamanaBuilder::default();
-    // vamana_builder.set_l(250);
-    let vamana_map: FreshVamanaMap<Point, usize> =
-        vamana_builder.build(points.clone(), values.clone());
+    let (nodes, centroid) = vamana_builder.build(points);
+
+    let mut graph = Graph {
+        nodes,
+        backlinks: Vec::new(),
+        cemetery: Vec::new(),
+        centroid,
+    };
 
     // Search in FreshVamana
-    let query_vectors = read_fvecs("./test_data/sift/sift_query.fvecs").unwrap();
-    // let query_i = rng.gen_range(0..query_vectors.len() as usize);
-    // let query = &query_vectors[query_i];
-    // println!("searcing vamana...");
-    // let vamana_results = vamana_map.search(&Point(query.to_vec()));
-    // println!("{:?}\n\n", vamana_results);
-
-    let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
-    // println!("groundtruth: {:?}", groundtruth[query_i]);
-    // println!(
-    //     "results: {:?}",
-    //     vamana_results
-    //         .iter()
-    //         .map(|(_, i)| *i)
-    //         .collect::<Vec<usize>>()
-    // );
 
     let round = 100;
     let mut hit = 0;
@@ -90,40 +80,94 @@ fn main() {
         let query_i = rng.gen_range(0..query_vectors.len() as usize);
         let query = &query_vectors[query_i];
 
-        let vamana_results = vamana_map.search(&Point(query.to_vec()));
+        let (vamana_results, _s) = vectune::search(&mut graph, &Point(query.to_vec()), 50);
         let top5 = &vamana_results
             .into_iter()
             .map(|(_, i)| i as i32)
             .collect::<Vec<i32>>()[0..5];
         let top5_groundtruth = &groundtruth[query_i][0..5];
-        // println!("{:?}\n{:?}\n", top5_groundtruth, top5);
         for res in top5 {
             if top5_groundtruth.contains(res) {
                 hit += 1;
             }
         }
-        // println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results.into_iter().map(|(_, i)|i).collect::<Vec<usize>>());
     }
 
     println!("5-recall-rate@5: {}", hit as f32 / (5 * round) as f32);
+}
 
-    // let serialized = serde_json::to_string(&vamana_map).unwrap();
-    // let mut file = File::create("test_data/vamana_1m.json").unwrap();
-    // file.write_all(serialized.as_bytes()).unwrap();
+struct Graph<P>
+where
+    P: VectunePoint,
+{
+    nodes: Vec<(P, Vec<usize>)>,
+    backlinks: Vec<Vec<usize>>,
+    cemetery: Vec<usize>,
+    centroid: usize,
+}
 
-    // let mut file = File::open("test_data/vamana_1m.json").unwrap();
-    // let mut contents = String::new();
-    // file.read_to_string(&mut contents).unwrap();
-    // let deserialized_vamana_map: FreshVamanaMap<Point, usize> =
-    //     serde_json::from_str(&contents).expect("Failed to deserialize");
-    // let vamana_results = deserialized_vamana_map.search(&Point(query.to_vec()));
-    // println!("\ndeserialized_vamana_map {:?}\n\n", vamana_results);
+impl<P> VectuneGraph<P> for Graph<P>
+where
+    P: VectunePoint,
+{
+    fn alloc(&mut self, point: P) -> usize {
+        todo!()
+    }
+
+    fn free(&mut self, id: &usize) {
+        todo!()
+    }
+
+    fn cemetery(&self) -> Vec<usize> {
+        self.cemetery.clone()
+    }
+
+    fn clear_cemetery(&mut self) {
+        self.cemetery = Vec::new();
+    }
+
+    fn backlink(&self, id: &usize) -> Vec<usize> {
+        self.backlinks[*id].clone()
+    }
+
+    fn get(&self, id: &usize) -> (P, Vec<usize>) {
+        let node = &self.nodes[*id];
+        node.clone()
+    }
+
+    fn size_l(&self) -> usize {
+        125
+    }
+
+    fn size_r(&self) -> usize {
+        70
+    }
+
+    fn size_a(&self) -> f32 {
+        2.0
+    }
+
+    fn start_id(&self) -> usize {
+        self.centroid
+    }
+
+    fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
+        self.nodes[*id].1 = edges;
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Point(Vec<f32>);
+impl Point {
+    fn to_f32_vec(&self) -> Vec<f32> {
+        self.0.iter().copied().collect()
+    }
+    fn from_f32_vec(a: Vec<f32>) -> Self {
+        Point(a.into_iter().collect())
+    }
+}
 
-impl VamanaPoint for Point {
+impl VectunePoint for Point {
     // fn distance(&self, other: &Self) -> f32 {
     //     self.0
     //         .iter()
@@ -170,10 +214,12 @@ impl VamanaPoint for Point {
     fn dim() -> u32 {
         384
     }
-    fn to_f32_vec(&self) -> Vec<f32> {
-        self.0.iter().copied().collect()
+
+    fn add(&self, other: &Self) -> Self {
+        Point::from_f32_vec(self.to_f32_vec().into_iter().zip(other.to_f32_vec().into_iter()).map(|(x, y)| x + y).collect())
     }
-    fn from_f32_vec(a: Vec<f32>) -> Self {
-        Point(a.into_iter().collect())
+    fn div(&self, divisor: &usize) -> Self {
+        Point::from_f32_vec(self.to_f32_vec().into_iter().map(|v| v / *divisor as f32).collect())
     }
+
 }

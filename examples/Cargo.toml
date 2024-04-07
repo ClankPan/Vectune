@@ -1,0 +1,32 @@
+
+[package]
+name = "exapmles"
+version = "0.1.0"
+edition = "2021"
+# rustc-flags = ["-C", "target-feature=+simd"]
+
+# [[bin]]
+# name = "main"
+# path = "src/main.rs"
+
+[[bin]]
+name = "sift1m"
+path = "src/bin/sift1m.rs"
+
+[dependencies]
+vectune = {path = "../vectune"}
+rand = { version = "0.8", features = ["small_rng"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+byteorder = "1.5.0"
+
+# [features]
+# # Enable unstable features necessary for std::simd
+# simd = []
+
+[features]
+nightly = []
+
+[package.metadata.rust-analyzer]
+# channel = "nightly-2024-01-14"
+rustc_private=true
