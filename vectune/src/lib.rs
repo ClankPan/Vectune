@@ -806,7 +806,7 @@ mod tests {
             Point::from_f32_vec(
                 self.to_f32_vec()
                     .into_iter()
-                    .zip(other.to_f32_vec().into_iter())
+                    .zip(other.to_f32_vec())
                     .map(|(x, y)| x + y)
                     .collect(),
             )
@@ -880,12 +880,12 @@ mod tests {
 
         fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
             for out_i in &self.nodes[*id].1 {
-                let backlinks = &mut self.backlink(&out_i);
+                let backlinks = &mut self.backlink(out_i);
                 backlinks.retain(|out_i| out_i != id)
             }
 
             for out_i in &edges {
-                let backlinks = &mut self.backlink(&out_i);
+                let backlinks = &mut self.backlink(out_i);
                 backlinks.push(*id);
                 backlinks.sort();
                 backlinks.dedup();
@@ -1066,13 +1066,12 @@ mod tests {
         let backlinks: Vec<Vec<usize>> = nodes
             .iter()
             .enumerate()
-            .map(|(node_i, node)| {
+            .flat_map(|(node_i, node)| {
                 node.1
                     .iter()
                     .map(|out_i| (*out_i, node_i))
                     .collect::<Vec<_>>()
             })
-            .flatten()
             .sorted_by_key(|&(k, _)| k)
             .group_by(|&(k, _)| k)
             .into_iter()
@@ -1152,13 +1151,12 @@ mod tests {
         let backlinks: Vec<Vec<usize>> = nodes
             .iter()
             .enumerate()
-            .map(|(node_i, node)| {
+            .flat_map(|(node_i, node)| {
                 node.1
                     .iter()
                     .map(|out_i| (*out_i, node_i))
                     .collect::<Vec<_>>()
             })
-            .flatten()
             .sorted_by_key(|&(k, _)| k)
             .group_by(|&(k, _)| k)
             .into_iter()
