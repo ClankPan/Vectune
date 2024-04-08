@@ -2,6 +2,14 @@
 name = "vectune"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["ClankPan <clankpan24cm@gmail.com>"]
+description = "A lightweight VectorDB with Incremental Indexing, based on FreshVamana."
+keywords = ["Fresh Vamana", "Vector DataBase", "Incremental Indexing", "Lightweight", "DisckANN"]
+categories = ["data-structures", "database", "mathematics"]
+repository = "https://github.com/ClankPan/vectune"
+workspace = ".."
+readme = "../README.md"
 
 [dependencies]
 itertools = "0.12.1"

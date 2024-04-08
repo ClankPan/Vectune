@@ -1,3 +1,8 @@
+/*
+    Vectune is a lightweight VectorDB with Incremental Indexing, based on [FreshVamana](https://arxiv.org/pdf/2105.09613.pdf).
+    Copyright © ClankPan 2024.
+*/
+
 use rustc_hash::FxHashSet;
 use std::time::Instant;
 
@@ -15,20 +20,86 @@ use indicatif::ProgressBar;
 #[cfg(feature = "indicatif")]
 use std::sync::atomic::{self, AtomicUsize};
 
-pub trait Point: Clone + Sync {
+/// Traits that the Point type should implement for use by vectune::Builder.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// #[derive(Serialize, Deserialize, Clone, Debug)]
+/// struct Point(Vec<f32>);
+/// impl PointInterface for Point {
+///     ...
+/// }
+/// ```
+pub trait PointInterface: Clone + Sync {
+    /// A function that returns the distance between two Points. Typically, the Euclidean distance is used.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// fn distance(&self, other: &Self) -> f32 {
+    ///     self.0
+    ///         .iter()
+    ///         .zip(other.0.iter())
+    ///         .map(|(a, b)| {
+    ///             let c = a - b;
+    ///             c * c
+    ///         })
+    ///         .sum::<f32>()
+    ///         .sqrt()
+    /// }
+    /// ```
     fn distance(&self, other: &Self) -> f32;
+
+    /// The number of dimensions of a vector.
     fn dim() -> u32;
-    // fn to_f32_vec(&self) -> Vec<f32>;
-    // fn from_f32_vec(a: Vec<f32>) -> Self;
+
+    /// Addition of two Points. Used by Builder to find the centroid.
+    /// 
+    ///　# Examples
+    /// 
+    /// ```rust
+    /// fn add(&self, other: &Self) -> Self {
+    ///     Point::from_f32_vec(
+    ///         self.to_f32_vec()
+    ///             .into_iter()
+    ///             .zip(other.to_f32_vec().into_iter())
+    ///             .map(|(x, y)| x + y)
+    ///             .collect(),
+    ///     )
+    /// }
+    /// ```
     fn add(&self, other: &Self) -> Self;
+
+    /// Division of a Point. Used by Builder to find the centroid.
+    /// 
+    ///　# Examples
+    /// 
+    /// ```rust
+    /// fn div(&self, divisor: &usize) -> Self {
+    ///     Point::from_f32_vec(
+    ///         self.to_f32_vec()
+    ///             .into_iter()
+    ///             .map(|v| v / *divisor as f32)
+    ///             .collect(),
+    ///     )
+    /// }
+    /// ```
     fn div(&self, divisor: &usize) -> Self;
 }
 
+/// Builder is a structure and implementation for creating a Vamana graph.
+/// 
+// - `a` is the threshold for RobustPrune; increasing it results in more long-distance edges and fewer nearby edges.
+// - `r` represents the number of edges; increasing it adds complexity to the graph but reduces the number of isolated nodes.
+// - `l` is the size of the retention list for greedy-search; increasing it allows for the construction of more accurate graphs, but the computational cost grows exponentially.
+// - `seed` is used for initializing random graphs; it allows for the fixation of the random graph, which can be useful for debugging.
+/// 
 #[derive(Clone)]
 pub struct Builder {
     a: f32,
     r: usize,
-    pub l: usize,
+    l: usize,
     seed: u64,
 
     #[cfg(feature = "indicatif")]
@@ -65,7 +136,13 @@ impl Builder {
         self.seed = seed;
         self
     }
-    pub fn build<P: Point>(self, points: Vec<P>) -> (Vec<(P, Vec<usize>)>, usize) {
+
+    ///
+    /// Creates a directed Vamana graph from a Point type that implements the PointInterface.
+    /// 
+    /// Takes a `Vec<P>` as an argument and returns a `Vec<(P, Vec<usize>)>` with edges added.
+    /// 
+    pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<usize>)>, usize) {
         let ann = Vamana::new(points, self);
 
         let nodes = ann
@@ -82,6 +159,7 @@ impl Builder {
 
         (nodes, s)
     }
+
     #[cfg(feature = "indicatif")]
     pub fn progress(mut self, bar: ProgressBar) -> Self {
         self.progress = Some(bar);
@@ -89,13 +167,114 @@ impl Builder {
     }
 }
 
+/// Traits that should be implemented for searching, inserting, and deleting after indexing.
+/// 
+/// # Exapmles
+/// 
+/// ```rust
+/// use vectune::GraphInterface;
+/// use itertools::Itertools;
+///
+/// struct Graph<P>
+/// where
+///     P: PointInterface,
+/// {
+///     nodes: Vec<(P, Vec<usize>)>,
+///     backlinks: Vec<Vec<usize>>,
+///     cemetery: Vec<usize>,
+///     centroid: usize,
+/// }
+///
+/// impl<P> Graph<P> {
+///   pub fn new(nodes: Vec<(P, Vec<usize>)>, centroid: usize) -> Self {
+///     let backlinks: Vec<Vec<usize>> = nodes
+///         .iter()
+///         .enumerate()
+///         .flat_map(|(node_i, node)| {
+///             node.1
+///                 .iter()
+///                 .map(|out_i| (*out_i, node_i))
+///                 .collect::<Vec<_>>()
+///         })
+///         .sorted_by_key(|&(k, _)| k)
+///         .group_by(|&(k, _)| k)
+///         .into_iter()
+///         .map(|(_key, group)| {
+///             group
+///                 .into_iter()
+///                 .map(|(_, i)| i)
+///                 .sorted()
+///                 .collect::<Vec<usize>>()
+///         })
+///         .collect();
+///         };
+///  
+///     Self {
+///       nodes,
+///       backlinks,
+///       cemetery: Vec::new(),
+///       centroid,
+///   };
+/// }
+/// impl<P> GraphInterface<P> for Graph<P>
+/// where
+///     P: PointInterface,
+/// {
+///     fn alloc(&mut self, point: P) -> usize {
+///         self.nodes.push((point, vec![]));
+///         self.backlinks.push(vec![]);
+///         self.nodes.len() - 1
+///     }
+///     fn free(&mut self, _id: &usize) {
+///         todo!()
+///     }
+///     fn cemetery(&self) -> Vec<usize> {
+///         self.cemetery.clone()
+///     }
+///     fn clear_cemetery(&mut self) {
+///         self.cemetery = Vec::new();
+///     }
+///     fn backlink(&self, id: &usize) -> Vec<usize> {
+///         self.backlinks[*id].clone()
+///     }
+///     fn get(&mut self, id: &usize) -> (P, Vec<usize>) {
+///         let node = &self.nodes[*id];
+///         node.clone()
+///     }
+///     fn size_l(&self) -> usize {
+///         125
+///     }
+///     fn size_r(&self) -> usize {
+///         70
+///     }
+///     fn size_a(&self) -> f32 {
+///         2.0
+///     }
+///     fn start_id(&self) -> usize {
+///         self.centroid
+///     }
+///     fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
+///         for out_i in &self.nodes[*id].1 {
+///             let backlinks = &mut self.backlink(out_i);
+///             backlinks.retain(|out_i| out_i != id)
+///         }
+///         for out_i in &edges {
+///             let backlinks = &mut self.backlink(out_i);
+///             backlinks.push(*id);
+///             backlinks.sort();
+///             backlinks.dedup();
+///         }
+///         self.nodes[*id].1 = edges;
+///     }
+/// }
+/// ```
 pub trait GraphInterface<P> {
     fn alloc(&mut self, point: P) -> usize;
     fn free(&mut self, id: &usize);
     fn cemetery(&self) -> Vec<usize>;
     fn clear_cemetery(&mut self);
     fn backlink(&self, id: &usize) -> Vec<usize>;
-    fn get(&self, id: &usize) -> (P, Vec<usize>);
+    fn get(&mut self, id: &usize) -> (P, Vec<usize>);
     fn size_l(&self) -> usize;
     fn size_r(&self) -> usize;
     fn size_a(&self) -> f32;
@@ -103,13 +282,26 @@ pub trait GraphInterface<P> {
     fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>); // backlinkを処理する必要がある。
 }
 
+
+/// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
+/// 
+/// Returns a tuple containing the list of k search results and the list of explored nodes.
+/// 
+/// Removes the nodes returned by graph.cemetery() from the results.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// let (results, visited) = vectune::search(&mut graph, &Point(query), 50);
+/// ```
+/// 
 pub fn search<P, G>(
     graph: &mut G,
     query_point: &P,
     k: usize,
 ) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
 where
-    P: Point,
+    P: PointInterface,
     G: GraphInterface<P>,
 {
     // k-anns, visited
@@ -204,9 +396,12 @@ where
     (k_anns, visited)
 }
 
+/// Insert a new node into a Graph that implements the GraphInterface trait.
+/// 
+/// Internally, use graph.alloc() to allocate space in storage or memory and reconnect the edges.
 pub fn insert<P, G>(graph: &mut G, new_p: P) -> usize
 where
-    P: Point,
+    P: PointInterface,
     G: GraphInterface<P>,
 {
     let new_id = graph.alloc(new_p.clone());
@@ -241,12 +436,10 @@ where
     new_id
 }
 
-/*
-ToDo: Parallizing
-*/
+/// Completely removes the nodes returned by graph.cemetery() from a Graph that implements the GraphInterface trait.
 pub fn delete<P, G>(graph: &mut G)
 where
-    P: Point,
+    P: PointInterface,
     G: GraphInterface<P>,
 {
     /* 𝑝 ∈ 𝑃 \ 𝐿𝐷 s.t. 𝑁out(𝑝) ∩ 𝐿𝐷 ≠ ∅ */
@@ -309,11 +502,13 @@ where
             It may ontain deleted points.
             The original paper does not explicitly state in Algorithm 4.
         */
+        let r = graph.size_r();
+        let a = graph.size_a();
         let new_edges = prune(
             |id| graph.get(id),
             &mut c_with_dist,
-            &graph.size_r(),
-            &graph.size_a(),
+            &r,
+            &a,
         );
         graph.overwirte_out_edges(&p, new_edges);
     }
@@ -330,14 +525,14 @@ where
 }
 
 fn prune<P, F>(
-    get: F,
+    mut get: F,
     candidates: &mut Vec<(f32, usize)>,
     builder_r: &usize,
     builder_a: &f32,
 ) -> Vec<usize>
 where
-    P: Point,
-    F: Fn(&usize) -> (P, Vec<usize>),
+    P: PointInterface,
+    F: FnMut(&usize) -> (P, Vec<usize>),
 {
     let mut new_n_out = vec![];
 
@@ -370,7 +565,7 @@ struct Node<P> {
     p: P,
 }
 
-pub struct Vamana<P> {
+struct Vamana<P> {
     nodes: Vec<Node<P>>,
     centroid: usize,
     builder: Builder,
@@ -378,7 +573,7 @@ pub struct Vamana<P> {
 
 impl<P> Vamana<P>
 where
-    P: Point,
+    P: PointInterface,
 {
     pub fn new(points: Vec<P>, builder: Builder) -> Self {
         let mut rng = SmallRng::seed_from_u64(builder.seed);
@@ -777,7 +972,7 @@ fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
 #[cfg(test)]
 mod tests {
 
-    use super::{GraphInterface as VGraph, Point as VPoint, *};
+    use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
 
     #[derive(Clone, Debug)]
     struct Point(Vec<u32>);
@@ -857,7 +1052,7 @@ mod tests {
             self.backlinks[*id].clone()
         }
 
-        fn get(&self, id: &usize) -> (P, Vec<usize>) {
+        fn get(&mut self, id: &usize) -> (P, Vec<usize>) {
             let node = &self.nodes[*id];
             node.clone()
         }
