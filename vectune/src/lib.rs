@@ -21,9 +21,9 @@ use indicatif::ProgressBar;
 use std::sync::atomic::{self, AtomicUsize};
 
 /// Traits that the Point type should implement for use by vectune::Builder.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// #[derive(Serialize, Deserialize, Clone, Debug)]
 /// struct Point(Vec<f32>);
@@ -33,9 +33,9 @@ use std::sync::atomic::{self, AtomicUsize};
 /// ```
 pub trait PointInterface: Clone + Sync {
     /// A function that returns the distance between two Points. Typically, the Euclidean distance is used.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// fn distance(&self, other: &Self) -> f32 {
     ///     self.0
@@ -55,9 +55,9 @@ pub trait PointInterface: Clone + Sync {
     fn dim() -> u32;
 
     /// Addition of two Points. Used by Builder to find the centroid.
-    /// 
+    ///
     ///　# Examples
-    /// 
+    ///
     /// ```rust
     /// fn add(&self, other: &Self) -> Self {
     ///     Point::from_f32_vec(
@@ -72,9 +72,9 @@ pub trait PointInterface: Clone + Sync {
     fn add(&self, other: &Self) -> Self;
 
     /// Division of a Point. Used by Builder to find the centroid.
-    /// 
+    ///
     ///　# Examples
-    /// 
+    ///
     /// ```rust
     /// fn div(&self, divisor: &usize) -> Self {
     ///     Point::from_f32_vec(
@@ -89,12 +89,12 @@ pub trait PointInterface: Clone + Sync {
 }
 
 /// Builder is a structure and implementation for creating a Vamana graph.
-/// 
+///
 // - `a` is the threshold for RobustPrune; increasing it results in more long-distance edges and fewer nearby edges.
 // - `r` represents the number of edges; increasing it adds complexity to the graph but reduces the number of isolated nodes.
 // - `l` is the size of the retention list for greedy-search; increasing it allows for the construction of more accurate graphs, but the computational cost grows exponentially.
 // - `seed` is used for initializing random graphs; it allows for the fixation of the random graph, which can be useful for debugging.
-/// 
+///
 #[derive(Clone)]
 pub struct Builder {
     a: f32,
@@ -139,9 +139,9 @@ impl Builder {
 
     ///
     /// Creates a directed Vamana graph from a Point type that implements the PointInterface.
-    /// 
+    ///
     /// Takes a `Vec<P>` as an argument and returns a `Vec<(P, Vec<usize>)>` with edges added.
-    /// 
+    ///
     pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<usize>)>, usize) {
         let ann = Vamana::new(points, self);
 
@@ -168,9 +168,9 @@ impl Builder {
 }
 
 /// Traits that should be implemented for searching, inserting, and deleting after indexing.
-/// 
+///
 /// # Exapmles
-/// 
+///
 /// ```rust
 /// use vectune::GraphInterface;
 /// use itertools::Itertools;
@@ -282,19 +282,18 @@ pub trait GraphInterface<P> {
     fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>); // backlinkを処理する必要がある。
 }
 
-
 /// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
-/// 
+///
 /// Returns a tuple containing the list of k search results and the list of explored nodes.
-/// 
+///
 /// Removes the nodes returned by graph.cemetery() from the results.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// let (results, visited) = vectune::search(&mut graph, &Point(query), 50);
 /// ```
-/// 
+///
 pub fn search<P, G>(
     graph: &mut G,
     query_point: &P,
@@ -397,7 +396,7 @@ where
 }
 
 /// Insert a new node into a Graph that implements the GraphInterface trait.
-/// 
+///
 /// Internally, use graph.alloc() to allocate space in storage or memory and reconnect the edges.
 pub fn insert<P, G>(graph: &mut G, new_p: P) -> usize
 where
@@ -504,12 +503,7 @@ where
         */
         let r = graph.size_r();
         let a = graph.size_a();
-        let new_edges = prune(
-            |id| graph.get(id),
-            &mut c_with_dist,
-            &r,
-            &a,
-        );
+        let new_edges = prune(|id| graph.get(id), &mut c_with_dist, &r, &a);
         graph.overwirte_out_edges(&p, new_edges);
     }
 
@@ -577,16 +571,10 @@ where
 {
     pub fn new(points: Vec<P>, builder: Builder) -> Self {
         let mut rng = SmallRng::seed_from_u64(builder.seed);
-        println!("seed: {}", builder.seed);
+        // println!("seed: {}", builder.seed);
 
-        // Initialize Random Graph
-        println!("rand init phase");
         let start_time = Instant::now();
         let mut ann = Vamana::<P>::random_graph_init(points, builder, &mut rng);
-        println!(
-            "\nrand init time: {:?}",
-            Instant::now().duration_since(start_time)
-        );
 
         // Prune Edges
         Vamana::<P>::indexing(&mut ann, &mut rng);
@@ -683,7 +671,7 @@ where
         let progress_done = AtomicUsize::new(0);
         #[cfg(feature = "indicatif")]
         if let Some(bar) = &progress {
-            bar.set_length(ann.nodes.len() as u64);
+            bar.set_length((ann.nodes.len() * 2) as u64);
             bar.set_message("Build index (preparation)");
         }
 
@@ -745,6 +733,27 @@ where
                     }
                 }
             });
+
+        (0..node_len).into_par_iter().for_each(|node_i| {
+            let node_p = &ann.nodes[node_i].p;
+            let mut n_out_dist = ann.nodes[node_i]
+                .n_out
+                .write()
+                .clone()
+                .into_iter()
+                .map(|out_i| (node_p.distance(&ann.nodes[out_i].p), out_i))
+                .collect();
+
+            *ann.nodes[node_i].n_out.write() = ann.prune(&mut n_out_dist);
+
+            #[cfg(feature = "indicatif")]
+            if let Some(bar) = &progress {
+                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                if value % 1000 == 0 {
+                    bar.set_position(value as u64);
+                }
+            }
+        });
 
         #[cfg(feature = "indicatif")]
         if let Some(bar) = &progress {
