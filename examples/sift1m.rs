@@ -1,4 +1,5 @@
 #![feature(portable_simd)]
+
 use std::simd::f32x4;
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -51,9 +52,9 @@ fn main() {
     let mut rng = SmallRng::seed_from_u64(seed);
 
     // Locad test data
-    let base_vectors = read_fvecs("./test_data/sift/sift_base.fvecs").unwrap();
-    let query_vectors = read_fvecs("./test_data/sift/sift_query.fvecs").unwrap();
-    let groundtruth = read_ivecs("test_data/sift/sift_groundtruth.ivecs").unwrap();
+    let base_vectors = read_fvecs("examples/test_data/sift/sift_base.fvecs").unwrap();
+    let query_vectors = read_fvecs("examples/test_data/sift/sift_query.fvecs").unwrap();
+    let groundtruth = read_ivecs("examples/test_data/sift/sift_groundtruth.ivecs").unwrap();
 
     let mut points = Vec::new();
     for vec in base_vectors {
