@@ -8,7 +8,9 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, BufReader};
-use vectune::{Builder as VamanaBuilder, GraphInterface as VectuneGraph, PointInterface as VectunePoint};
+use vectune::{
+    Builder as VamanaBuilder, GraphInterface as VectuneGraph, PointInterface as VectunePoint,
+};
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
