@@ -21,9 +21,9 @@ use indicatif::ProgressBar;
 use std::sync::atomic::{self, AtomicUsize};
 
 /// Traits that the Point type should implement for use by vectune::Builder.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// #[derive(Serialize, Deserialize, Clone, Debug)]
 /// struct Point(Vec<f32>);
@@ -33,9 +33,9 @@ use std::sync::atomic::{self, AtomicUsize};
 /// ```
 pub trait PointInterface: Clone + Sync {
     /// A function that returns the distance between two Points. Typically, the Euclidean distance is used.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust
     /// fn distance(&self, other: &Self) -> f32 {
     ///     self.0
@@ -55,9 +55,9 @@ pub trait PointInterface: Clone + Sync {
     fn dim() -> u32;
 
     /// Addition of two Points. Used by Builder to find the centroid.
-    /// 
+    ///
     ///　# Examples
-    /// 
+    ///
     /// ```rust
     /// fn add(&self, other: &Self) -> Self {
     ///     Point::from_f32_vec(
@@ -72,9 +72,9 @@ pub trait PointInterface: Clone + Sync {
     fn add(&self, other: &Self) -> Self;
 
     /// Division of a Point. Used by Builder to find the centroid.
-    /// 
+    ///
     ///　# Examples
-    /// 
+    ///
     /// ```rust
     /// fn div(&self, divisor: &usize) -> Self {
     ///     Point::from_f32_vec(
@@ -89,12 +89,12 @@ pub trait PointInterface: Clone + Sync {
 }
 
 /// Builder is a structure and implementation for creating a Vamana graph.
-/// 
+///
 // - `a` is the threshold for RobustPrune; increasing it results in more long-distance edges and fewer nearby edges.
 // - `r` represents the number of edges; increasing it adds complexity to the graph but reduces the number of isolated nodes.
 // - `l` is the size of the retention list for greedy-search; increasing it allows for the construction of more accurate graphs, but the computational cost grows exponentially.
 // - `seed` is used for initializing random graphs; it allows for the fixation of the random graph, which can be useful for debugging.
-/// 
+///
 #[derive(Clone)]
 pub struct Builder {
     a: f32,
@@ -139,10 +139,10 @@ impl Builder {
 
     ///
     /// Creates a directed Vamana graph from a Point type that implements the PointInterface.
-    /// 
+    ///
     /// Takes a `Vec<P>` as an argument and returns a `Vec<(P, Vec<usize>)>` with edges added.
-    /// 
-    pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<usize>)>, usize) {
+    ///
+    pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<u32>)>, u32) {
         let ann = Vamana::new(points, self);
 
         let nodes = ann
@@ -168,138 +168,116 @@ impl Builder {
 }
 
 /// Traits that should be implemented for searching, inserting, and deleting after indexing.
-/// 
-/// # Exapmles
-/// 
-/// ```rust
-/// use vectune::GraphInterface;
-/// use itertools::Itertools;
 ///
+/// # Exapmles
+///
+/// ```rust
+/// 
 /// struct Graph<P>
 /// where
-///     P: PointInterface,
+///     P: VPoint,
 /// {
-///     nodes: Vec<(P, Vec<usize>)>,
-///     backlinks: Vec<Vec<usize>>,
-///     cemetery: Vec<usize>,
-///     centroid: usize,
+///     nodes: Vec<(P, Vec<u32>)>,
+///     backlinks: Vec<Vec<u32>>,
+///     cemetery: Vec<u32>,
+///     centroid: u32,
 /// }
-///
-/// impl<P> Graph<P> {
-///   pub fn new(nodes: Vec<(P, Vec<usize>)>, centroid: usize) -> Self {
-///     let backlinks: Vec<Vec<usize>> = nodes
-///         .iter()
-///         .enumerate()
-///         .flat_map(|(node_i, node)| {
-///             node.1
-///                 .iter()
-///                 .map(|out_i| (*out_i, node_i))
-///                 .collect::<Vec<_>>()
-///         })
-///         .sorted_by_key(|&(k, _)| k)
-///         .group_by(|&(k, _)| k)
-///         .into_iter()
-///         .map(|(_key, group)| {
-///             group
-///                 .into_iter()
-///                 .map(|(_, i)| i)
-///                 .sorted()
-///                 .collect::<Vec<usize>>()
-///         })
-///         .collect();
-///         };
-///  
-///     Self {
-///       nodes,
-///       backlinks,
-///       cemetery: Vec::new(),
-///       centroid,
-///   };
-/// }
-/// impl<P> GraphInterface<P> for Graph<P>
+/// 
+/// impl<P> VGraph<P> for Graph<P>
 /// where
-///     P: PointInterface,
+///     P: VPoint,
 /// {
-///     fn alloc(&mut self, point: P) -> usize {
+///     fn alloc(&mut self, point: P) -> u32 {
 ///         self.nodes.push((point, vec![]));
 ///         self.backlinks.push(vec![]);
-///         self.nodes.len() - 1
+///         (self.nodes.len() - 1) as u32
 ///     }
-///     fn free(&mut self, _id: &usize) {
-///         todo!()
+/// 
+///     fn free(&mut self, _id: &u32) {
+///         // todo!()
 ///     }
-///     fn cemetery(&self) -> Vec<usize> {
+/// 
+///     fn cemetery(&self) -> Vec<u32> {
 ///         self.cemetery.clone()
 ///     }
+/// 
 ///     fn clear_cemetery(&mut self) {
 ///         self.cemetery = Vec::new();
 ///     }
-///     fn backlink(&self, id: &usize) -> Vec<usize> {
-///         self.backlinks[*id].clone()
+/// 
+///     fn backlink(&self, id: &u32) -> Vec<u32> {
+///         self.backlinks[*id as usize].clone()
 ///     }
-///     fn get(&mut self, id: &usize) -> (P, Vec<usize>) {
-///         let node = &self.nodes[*id];
+/// 
+///     fn get(&mut self, id: &u32) -> (P, Vec<u32>) {
+///         let node = &self.nodes[*id as usize];
 ///         node.clone()
 ///     }
+/// 
 ///     fn size_l(&self) -> usize {
 ///         125
 ///     }
+/// 
 ///     fn size_r(&self) -> usize {
 ///         70
 ///     }
+/// 
 ///     fn size_a(&self) -> f32 {
 ///         2.0
 ///     }
-///     fn start_id(&self) -> usize {
+/// 
+///     fn start_id(&self) -> u32 {
 ///         self.centroid
 ///     }
-///     fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
-///         for out_i in &self.nodes[*id].1 {
+/// 
+///     fn overwirte_out_edges(&mut self, id: &u32, edges: Vec<u32>) {
+///         for out_i in &self.nodes[*id as usize].1 {
 ///             let backlinks = &mut self.backlink(out_i);
 ///             backlinks.retain(|out_i| out_i != id)
 ///         }
+/// 
 ///         for out_i in &edges {
 ///             let backlinks = &mut self.backlink(out_i);
 ///             backlinks.push(*id);
 ///             backlinks.sort();
 ///             backlinks.dedup();
 ///         }
-///         self.nodes[*id].1 = edges;
+/// 
+///         self.nodes[*id as usize].1 = edges;
 ///     }
 /// }
 /// ```
 pub trait GraphInterface<P> {
-    fn alloc(&mut self, point: P) -> usize;
-    fn free(&mut self, id: &usize);
-    fn cemetery(&self) -> Vec<usize>;
+    fn alloc(&mut self, point: P) -> u32;
+    fn free(&mut self, id: &u32);
+    fn cemetery(&self) -> Vec<u32>;
     fn clear_cemetery(&mut self);
-    fn backlink(&self, id: &usize) -> Vec<usize>;
-    fn get(&mut self, id: &usize) -> (P, Vec<usize>);
+    fn backlink(&self, id: &u32) -> Vec<u32>;
+    fn get(&mut self, id: &u32) -> (P, Vec<u32>);
     fn size_l(&self) -> usize;
     fn size_r(&self) -> usize;
     fn size_a(&self) -> f32;
-    fn start_id(&self) -> usize;
-    fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>); // backlinkを処理する必要がある。
+    fn start_id(&self) -> u32;
+    fn overwirte_out_edges(&mut self, id: &u32, edges: Vec<u32>); // backlinkを処理する必要がある。
 }
 
-
 /// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
-/// 
+///
 /// Returns a tuple containing the list of k search results and the list of explored nodes.
-/// 
+///
 /// Removes the nodes returned by graph.cemetery() from the results.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// let (results, visited) = vectune::search(&mut graph, &Point(query), 50);
 /// ```
-/// 
+///
 pub fn search<P, G>(
     graph: &mut G,
     query_point: &P,
     k: usize,
-) -> (Vec<(f32, usize)>, Vec<(f32, usize)>)
+) -> (Vec<(f32, u32)>, Vec<(f32, u32)>)
 where
     P: PointInterface,
     G: GraphInterface<P>,
@@ -308,11 +286,11 @@ where
     let builder_l = graph.size_l();
     assert!(builder_l >= k);
 
-    let mut visited: Vec<(f32, usize)> = Vec::with_capacity(builder_l * 2);
+    let mut visited: Vec<(f32, u32)> = Vec::with_capacity(builder_l * 2);
     let mut touched = FxHashSet::default();
     touched.reserve(builder_l * 100);
 
-    let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(builder_l);
+    let mut list: Vec<(f32, u32, bool)> = Vec::with_capacity(builder_l);
     let s = graph.start_id();
     let (s_point, _) = graph.get(&s);
     // list.push((query_point.distance(&s_point), s, true));
@@ -323,7 +301,7 @@ where
 
     while let Some((_, nearest_i, _)) = working {
         let (_, nearest_n_out) = graph.get(&nearest_i);
-        let mut nouts: Vec<(f32, usize, bool)> = Vec::with_capacity(nearest_n_out.len());
+        let mut nouts: Vec<(f32, u32, bool)> = Vec::with_capacity(nearest_n_out.len());
         for out_i in nearest_n_out {
             if !touched.contains(&out_i) {
                 touched.insert(out_i);
@@ -388,7 +366,7 @@ where
     let mut k_anns = list
         .into_iter()
         .map(|(dist, id, _)| (dist, id))
-        .collect::<Vec<(f32, usize)>>();
+        .collect::<Vec<(f32, u32)>>();
     k_anns.truncate(k);
 
     sort_list_by_dist_v1(&mut visited);
@@ -397,9 +375,9 @@ where
 }
 
 /// Insert a new node into a Graph that implements the GraphInterface trait.
-/// 
+///
 /// Internally, use graph.alloc() to allocate space in storage or memory and reconnect the edges.
-pub fn insert<P, G>(graph: &mut G, new_p: P) -> usize
+pub fn insert<P, G>(graph: &mut G, new_p: P) -> u32
 where
     P: PointInterface,
     G: GraphInterface<P>,
@@ -426,7 +404,7 @@ where
             let mut j_n_out_with_dist = j_n_out
                 .iter()
                 .map(|j_out_idx| (j_point.distance(&new_p), *j_out_idx))
-                .collect::<Vec<(f32, usize)>>();
+                .collect::<Vec<(f32, u32)>>();
             sort_list_by_dist_v1(&mut j_n_out_with_dist);
             j_n_out = prune(|id| graph.get(id), &mut j_n_out_with_dist, &r, &a);
         }
@@ -489,7 +467,7 @@ where
         // 𝑁out(𝑝) ← RobustPrune(𝑝, C, 𝛼, 𝑅)
         //   let (p_point, _) = self.nodes[p].p.clone();
         let (p_point, _) = graph.get(&p);
-        let mut c_with_dist: Vec<(f32, usize)> = c
+        let mut c_with_dist: Vec<(f32, u32)> = c
             .into_iter()
             .map(|id| (p_point.distance(&graph.get(&id).0), id))
             .collect();
@@ -504,12 +482,7 @@ where
         */
         let r = graph.size_r();
         let a = graph.size_a();
-        let new_edges = prune(
-            |id| graph.get(id),
-            &mut c_with_dist,
-            &r,
-            &a,
-        );
+        let new_edges = prune(|id| graph.get(id), &mut c_with_dist, &r, &a);
         graph.overwirte_out_edges(&p, new_edges);
     }
 
@@ -526,13 +499,13 @@ where
 
 fn prune<P, F>(
     mut get: F,
-    candidates: &mut Vec<(f32, usize)>,
+    candidates: &mut Vec<(f32, u32)>,
     builder_r: &usize,
     builder_a: &f32,
-) -> Vec<usize>
+) -> Vec<u32>
 where
     P: PointInterface,
-    F: FnMut(&usize) -> (P, Vec<usize>),
+    F: FnMut(&u32) -> (P, Vec<u32>),
 {
     let mut new_n_out = vec![];
 
@@ -561,13 +534,13 @@ where
 }
 
 struct Node<P> {
-    n_out: RwLock<Vec<usize>>,
+    n_out: RwLock<Vec<u32>>,
     p: P,
 }
 
 struct Vamana<P> {
     nodes: Vec<Node<P>>,
-    centroid: usize,
+    centroid: u32,
     builder: Builder,
 }
 
@@ -577,16 +550,10 @@ where
 {
     pub fn new(points: Vec<P>, builder: Builder) -> Self {
         let mut rng = SmallRng::seed_from_u64(builder.seed);
-        println!("seed: {}", builder.seed);
+        // println!("seed: {}", builder.seed);
 
-        // Initialize Random Graph
-        println!("rand init phase");
         let start_time = Instant::now();
         let mut ann = Vamana::<P>::random_graph_init(points, builder, &mut rng);
-        println!(
-            "\nrand init time: {:?}",
-            Instant::now().duration_since(start_time)
-        );
 
         // Prune Edges
         Vamana::<P>::indexing(&mut ann, &mut rng);
@@ -603,7 +570,7 @@ where
         if points.is_empty() {
             return Self {
                 nodes: Vec::new(),
-                centroid: usize::MAX,
+                centroid: u32::MAX,
                 builder,
             };
         }
@@ -619,19 +586,19 @@ where
 
         let average_point = sum.div(&points_len);
         let mut min_dist = f32::MAX;
-        let mut centroid = usize::MAX;
+        let mut centroid = u32::MAX;
         for (i, p) in points.iter().enumerate() {
             let dist = p.distance(&average_point);
             if dist < min_dist {
                 min_dist = dist;
-                centroid = i;
+                centroid = i as u32;
             }
         }
 
         /* Get random connected graph */
 
         // edge (in, out)
-        let edges: Vec<(RwLock<Vec<usize>>, RwLock<Vec<usize>>)> = (0..points_len)
+        let edges: Vec<(RwLock<Vec<u32>>, RwLock<Vec<u32>>)> = (0..points_len)
             .map(|_| {
                 (
                     RwLock::new(Vec::with_capacity(builder.l)),
@@ -645,14 +612,14 @@ where
 
             let mut new_ids = Vec::with_capacity(builder.l);
             while new_ids.len() < builder.r {
-                let candidate_i = rng.gen_range(0..points_len);
-                if node_i == candidate_i
+                let candidate_i = rng.gen_range(0..points_len as u32);
+                if node_i as u32 == candidate_i
                     || new_ids.contains(&candidate_i)
-                    || edges[candidate_i].0.read().len() >= builder.r + builder.r / 2
+                    || edges[candidate_i as usize].0.read().len() >= builder.r + builder.r / 2
                 {
                     continue;
                 } else {
-                    edges[candidate_i].0.write().push(node_i);
+                    edges[candidate_i as usize].0.write().push(node_i as u32);
                     new_ids.push(candidate_i);
                 }
             }
@@ -683,7 +650,7 @@ where
         let progress_done = AtomicUsize::new(0);
         #[cfg(feature = "indicatif")]
         if let Some(bar) = &progress {
-            bar.set_length(ann.nodes.len() as u64);
+            bar.set_length((ann.nodes.len() * 2) as u64);
             bar.set_message("Build index (preparation)");
         }
 
@@ -709,30 +676,30 @@ where
                 for out_i in &prev_n_out {
                     if !is_contained_in(out_i, &candidates) {
                         // let dist = self.node_distance(xp, out_i);
-                        let dist = ann.nodes[i].p.distance(&ann.nodes[*out_i].p);
+                        let dist = ann.nodes[i].p.distance(&ann.nodes[*out_i as usize].p);
                         insert_dist((dist, *out_i), &mut candidates)
                     }
                 }
 
                 // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
                 let mut new_n_out = ann.prune(&mut candidates);
-                let new_added_ids = diff_ids(&ann.nodes[i].n_out.read(), &prev_n_out);
+                let new_added_ids = diff_ids(&ann.nodes[i as usize].n_out.read(), &prev_n_out);
                 for out_i in new_added_ids {
                     insert_id(out_i, &mut new_n_out);
                 }
 
                 {
-                    let mut current_n_out = ann.nodes[i].n_out.write();
+                    let mut current_n_out = ann.nodes[i as usize].n_out.write();
                     current_n_out.clone_from(&new_n_out);
                 } // unlock the write lock
 
                 // for all points j in Nout(σ(i)) do
                 for j in new_n_out {
-                    if ann.nodes[j].n_out.read().contains(&i) {
+                    if ann.nodes[j as usize].n_out.read().contains(&(i as u32)) {
                         continue;
                     } else {
                         // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
-                        insert_id(i, &mut ann.nodes[j].n_out.write());
+                        insert_id(i as u32, &mut ann.nodes[j as usize].n_out.write());
                         // insert_id(j, &mut ann.nodes[i].n_in);
                     }
                 }
@@ -746,13 +713,34 @@ where
                 }
             });
 
+        (0..node_len).into_par_iter().for_each(|node_i| {
+            let node_p = &ann.nodes[node_i].p;
+            let mut n_out_dist = ann.nodes[node_i]
+                .n_out
+                .write()
+                .clone()
+                .into_iter()
+                .map(|out_i| (node_p.distance(&ann.nodes[out_i as usize].p), out_i))
+                .collect();
+
+            *ann.nodes[node_i].n_out.write() = ann.prune(&mut n_out_dist);
+
+            #[cfg(feature = "indicatif")]
+            if let Some(bar) = &progress {
+                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                if value % 1000 == 0 {
+                    bar.set_position(value as u64);
+                }
+            }
+        });
+
         #[cfg(feature = "indicatif")]
         if let Some(bar) = &progress {
             bar.finish();
         }
     }
 
-    fn prune(&self, candidates: &mut Vec<(f32, usize)>) -> Vec<usize> {
+    fn prune(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {
         let mut new_n_out = vec![];
 
         while let Some((first, rest)) = candidates.split_first() {
@@ -766,8 +754,8 @@ where
 
             // if α · d(p*, p') <= d(p, p') then remove p' from v
             candidates.retain(|&(dist_xp_pd, pd)| {
-                let pa_point = &self.nodes[pa].p;
-                let pd_point = &self.nodes[pd].p;
+                let pa_point = &self.nodes[pa as usize].p;
+                let pd_point = &self.nodes[pd as usize].p;
                 let dist_pa_pd = pa_point.distance(pd_point);
 
                 self.builder.a * dist_pa_pd > dist_xp_pd
@@ -782,27 +770,27 @@ where
         query_point: &P,
         k: usize,
         l: usize,
-    ) -> (Vec<(f32, usize)>, Vec<(f32, usize)>) {
+    ) -> (Vec<(f32, u32)>, Vec<(f32, u32)>) {
         // k-anns, visited
         assert!(l >= k);
         let s = self.centroid;
-        let mut visited: Vec<(f32, usize)> = Vec::with_capacity(self.builder.l * 2);
+        let mut visited: Vec<(f32, u32)> = Vec::with_capacity(self.builder.l * 2);
         let mut touched = FxHashSet::default();
         touched.reserve(self.builder.l * 100);
 
-        let mut list: Vec<(f32, usize, bool)> = Vec::with_capacity(self.builder.l);
-        list.push((query_point.distance(&self.nodes[s].p), s, true));
+        let mut list: Vec<(f32, u32, bool)> = Vec::with_capacity(self.builder.l);
+        list.push((query_point.distance(&self.nodes[s as usize].p), s, true));
         let mut working = Some(list[0]);
         visited.push((list[0].0, list[0].1));
         touched.insert(list[0].1);
 
         while let Some((_, nearest_i, _)) = working {
-            let nearest_n_out = self.nodes[nearest_i].n_out.read().clone();
-            let mut nouts: Vec<(f32, usize, bool)> = Vec::with_capacity(nearest_n_out.len());
+            let nearest_n_out = self.nodes[nearest_i as usize].n_out.read().clone();
+            let mut nouts: Vec<(f32, u32, bool)> = Vec::with_capacity(nearest_n_out.len());
             for out_i in nearest_n_out {
                 if !touched.contains(&out_i) {
                     touched.insert(out_i);
-                    nouts.push((query_point.distance(&self.nodes[out_i].p), out_i, false))
+                    nouts.push((query_point.distance(&self.nodes[out_i as usize].p), out_i, false))
                 }
             }
 
@@ -858,7 +846,7 @@ where
         let mut k_anns = list
             .into_iter()
             .map(|(dist, id, _)| (dist, id))
-            .collect::<Vec<(f32, usize)>>();
+            .collect::<Vec<(f32, u32)>>();
         k_anns.truncate(k);
 
         sort_list_by_dist_v1(&mut visited);
@@ -867,7 +855,7 @@ where
     }
 }
 
-fn diff_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+fn diff_ids(a: &Vec<u32>, b: &Vec<u32>) -> Vec<u32> {
     let mut result = Vec::new();
     let mut a_idx = 0;
     let mut b_idx = 0;
@@ -895,7 +883,7 @@ fn diff_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
     result
 }
 
-fn intersect_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+fn intersect_ids(a: &Vec<u32>, b: &Vec<u32>) -> Vec<u32> {
     let mut result = Vec::new();
     let mut a_idx = 0;
     let mut b_idx = 0;
@@ -915,22 +903,22 @@ fn intersect_ids(a: &Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
     result
 }
 
-fn sort_list_by_dist(list: &mut Vec<(f32, usize, bool)>) {
+fn sort_list_by_dist(list: &mut Vec<(f32, u32, bool)>) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
 }
 
-fn sort_list_by_dist_v1(list: &mut Vec<(f32, usize)>) {
+fn sort_list_by_dist_v1(list: &mut Vec<(f32, u32)>) {
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less));
 }
 
-fn is_contained_in(i: &usize, vec: &Vec<(f32, usize)>) -> bool {
+fn is_contained_in(i: &u32, vec: &Vec<(f32, u32)>) -> bool {
     !vec.iter()
         .filter(|(_, id)| *id == *i)
-        .collect::<Vec<&(f32, usize)>>()
+        .collect::<Vec<&(f32, u32)>>()
         .is_empty()
 }
 
-fn insert_id(value: usize, vec: &mut Vec<usize>) {
+fn insert_id(value: u32, vec: &mut Vec<u32>) {
     match vec.binary_search(&value) {
         Ok(_index) => { // If already exsits
         }
@@ -940,7 +928,7 @@ fn insert_id(value: usize, vec: &mut Vec<usize>) {
     }
 }
 
-fn insert_dist(value: (f32, usize), vec: &mut Vec<(f32, usize)>) {
+fn insert_dist(value: (f32, u32), vec: &mut Vec<(f32, u32)>) {
     match vec.binary_search_by(|probe| {
         probe
             .0
@@ -1020,27 +1008,27 @@ mod tests {
     where
         P: VPoint,
     {
-        nodes: Vec<(P, Vec<usize>)>,
-        backlinks: Vec<Vec<usize>>,
-        cemetery: Vec<usize>,
-        centroid: usize,
+        nodes: Vec<(P, Vec<u32>)>,
+        backlinks: Vec<Vec<u32>>,
+        cemetery: Vec<u32>,
+        centroid: u32,
     }
 
     impl<P> VGraph<P> for Graph<P>
     where
         P: VPoint,
     {
-        fn alloc(&mut self, point: P) -> usize {
+        fn alloc(&mut self, point: P) -> u32 {
             self.nodes.push((point, vec![]));
             self.backlinks.push(vec![]);
-            self.nodes.len() - 1
+            (self.nodes.len() - 1) as u32
         }
 
-        fn free(&mut self, _id: &usize) {
+        fn free(&mut self, _id: &u32) {
             // todo!()
         }
 
-        fn cemetery(&self) -> Vec<usize> {
+        fn cemetery(&self) -> Vec<u32> {
             self.cemetery.clone()
         }
 
@@ -1048,12 +1036,12 @@ mod tests {
             self.cemetery = Vec::new();
         }
 
-        fn backlink(&self, id: &usize) -> Vec<usize> {
-            self.backlinks[*id].clone()
+        fn backlink(&self, id: &u32) -> Vec<u32> {
+            self.backlinks[*id as usize].clone()
         }
 
-        fn get(&mut self, id: &usize) -> (P, Vec<usize>) {
-            let node = &self.nodes[*id];
+        fn get(&mut self, id: &u32) -> (P, Vec<u32>) {
+            let node = &self.nodes[*id as usize];
             node.clone()
         }
 
@@ -1069,12 +1057,12 @@ mod tests {
             2.0
         }
 
-        fn start_id(&self) -> usize {
+        fn start_id(&self) -> u32 {
             self.centroid
         }
 
-        fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
-            for out_i in &self.nodes[*id].1 {
+        fn overwirte_out_edges(&mut self, id: &u32, edges: Vec<u32>) {
+            for out_i in &self.nodes[*id as usize].1 {
                 let backlinks = &mut self.backlink(out_i);
                 backlinks.retain(|out_i| out_i != id)
             }
@@ -1086,7 +1074,7 @@ mod tests {
                 backlinks.dedup();
             }
 
-            self.nodes[*id].1 = edges;
+            self.nodes[*id as usize].1 = edges;
         }
     }
 
@@ -1142,7 +1130,7 @@ mod tests {
 
         println!("{:?}", k_anns);
         for i in 0..10 {
-            assert_eq!(k_anns[i].1, i);
+            assert_eq!(k_anns[i].1, i  as u32);
         }
     }
 
@@ -1179,7 +1167,7 @@ mod tests {
         println!("k_anns: {:?}", k_anns);
 
         for i in 0..10 {
-            assert_eq!(k_anns[i].1, i);
+            assert_eq!(k_anns[i].1, i as u32);
         }
     }
 
@@ -1216,7 +1204,7 @@ mod tests {
         println!("k_anns: {:?}", k_anns);
 
         for i in 0..10 {
-            assert_eq!(k_anns[i].1, i);
+            assert_eq!(k_anns[i].1, i as u32);
         }
 
         // mark as grave
@@ -1230,8 +1218,8 @@ mod tests {
 
         assert_ne!(k_anns_intered, k_anns);
 
-        let k_anns_ids: Vec<usize> = k_anns.into_iter().map(|(_, id)| id).collect();
-        let k_anns_intered_ids: Vec<usize> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+        let k_anns_ids: Vec<u32> = k_anns.into_iter().map(|(_, id)| id).collect();
+        let k_anns_intered_ids: Vec<u32> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
 
         let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
         assert_eq!(diff, expected);
@@ -1258,7 +1246,7 @@ mod tests {
             println!("id: {}, {:?}", node_i, node.1);
         }
 
-        let backlinks: Vec<Vec<usize>> = nodes
+        let backlinks: Vec<Vec<u32>> = nodes
             .iter()
             .enumerate()
             .flat_map(|(node_i, node)| {
@@ -1273,9 +1261,9 @@ mod tests {
             .map(|(_key, group)| {
                 group
                     .into_iter()
-                    .map(|(_, i)| i)
+                    .map(|(_, i)| i as u32)
                     .sorted()
-                    .collect::<Vec<usize>>()
+                    .collect::<Vec<u32>>()
             })
             .collect();
 
@@ -1295,7 +1283,7 @@ mod tests {
         println!("k_anns: {:?}", k_anns);
 
         for i in 0..10 {
-            assert_eq!(k_anns[i].1, i);
+            assert_eq!(k_anns[i].1, i as u32);
         }
 
         // mark as grave
@@ -1315,8 +1303,8 @@ mod tests {
 
         assert_ne!(k_anns_intered, k_anns);
 
-        let k_anns_ids: Vec<usize> = k_anns.into_iter().map(|(_, id)| id).collect();
-        let k_anns_intered_ids: Vec<usize> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+        let k_anns_ids: Vec<u32> = k_anns.into_iter().map(|(_, id)| id).collect();
+        let k_anns_intered_ids: Vec<u32> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
 
         let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
         assert_eq!(diff, expected);
@@ -1343,7 +1331,7 @@ mod tests {
             println!("id: {}, {:?}", node_i, node.1);
         }
 
-        let backlinks: Vec<Vec<usize>> = nodes
+        let backlinks: Vec<Vec<u32>> = nodes
             .iter()
             .enumerate()
             .flat_map(|(node_i, node)| {
@@ -1358,9 +1346,9 @@ mod tests {
             .map(|(_key, group)| {
                 group
                     .into_iter()
-                    .map(|(_, i)| i)
+                    .map(|(_, i)| i as u32)
                     .sorted()
-                    .collect::<Vec<usize>>()
+                    .collect::<Vec<u32>>()
             })
             .collect();
 
@@ -1380,7 +1368,7 @@ mod tests {
         println!("k_anns: {:?}", k_anns);
 
         for i in 0..10 {
-            assert_eq!(k_anns[i].1, i);
+            assert_eq!(k_anns[i].1, i as u32);
         }
 
         // mark as grave
@@ -1405,8 +1393,8 @@ mod tests {
 
         assert_ne!(k_anns_intered, k_anns);
 
-        let mut k_anns_ids: Vec<usize> = k_anns.into_iter().map(|(_, id)| id).collect();
-        let k_anns_intered_ids: Vec<usize> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
+        let mut k_anns_ids: Vec<u32> = k_anns.into_iter().map(|(_, id)| id).collect();
+        let k_anns_intered_ids: Vec<u32> = k_anns_intered.into_iter().map(|(_, id)| id).collect();
 
         let diff = diff_ids(&k_anns_ids, &k_anns_intered_ids);
         assert_eq!(diff, expected);
@@ -1418,7 +1406,7 @@ mod tests {
         }
 
         let (k_anns_inserted, _visited) = super::search(&mut graph, &xq, k);
-        let k_anns_inserted_ids: Vec<usize> =
+        let k_anns_inserted_ids: Vec<u32> =
             k_anns_inserted.into_iter().map(|(_, id)| id).collect();
         k_anns_ids[3] = new_ids[0];
         k_anns_ids[5] = new_ids[1];
@@ -1453,7 +1441,7 @@ mod tests {
         println!("k_anns: {:?}", k_anns);
 
         for i in 0..10 {
-            assert_eq!(k_anns[i].1, i);
+            assert_eq!(k_anns[i].1, i as u32);
         }
     }
 

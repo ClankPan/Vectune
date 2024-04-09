@@ -134,85 +134,63 @@ use itertools::Itertools;
 
 struct Graph<P>
 where
-    P: PointInterface,
+    P: VPoint,
 {
-    nodes: Vec<(P, Vec<usize>)>,
-    backlinks: Vec<Vec<usize>>,
-    cemetery: Vec<usize>,
-    centroid: usize,
+    nodes: Vec<(P, Vec<u32>)>,
+    backlinks: Vec<Vec<u32>>,
+    cemetery: Vec<u32>,
+    centroid: u32,
 }
 
-impl<P> Graph<P> {
-pub fn new(nodes: Vec<(P, Vec<usize>)>, centroid: usize) -> Self {
-    let backlinks: Vec<Vec<usize>> = nodes
-        .iter()
-        .enumerate()
-        .flat_map(|(node_i, node)| {
-            node.1
-                .iter()
-                .map(|out_i| (*out_i, node_i))
-                .collect::<Vec<_>>()
-        })
-        .sorted_by_key(|&(k, _)| k)
-        .group_by(|&(k, _)| k)
-        .into_iter()
-        .map(|(_key, group)| {
-            group
-                .into_iter()
-                .map(|(_, i)| i)
-                .sorted()
-                .collect::<Vec<usize>>()
-        })
-        .collect();
-        };
-    
-    Self {
-    nodes,
-    backlinks,
-    cemetery: Vec::new(),
-    centroid,
-};
-}
-
-impl<P> GraphInterface<P> for Graph<P>
+impl<P> VGraph<P> for Graph<P>
 where
-    P: PointInterface,
+    P: VPoint,
 {
-    fn alloc(&mut self, point: P) -> usize {
+    fn alloc(&mut self, point: P) -> u32 {
         self.nodes.push((point, vec![]));
         self.backlinks.push(vec![]);
-        self.nodes.len() - 1
+        (self.nodes.len() - 1) as u32
     }
-    fn free(&mut self, _id: &usize) {
-        todo!()
+
+    fn free(&mut self, _id: &u32) {
+        // todo!()
     }
-    fn cemetery(&self) -> Vec<usize> {
+
+    fn cemetery(&self) -> Vec<u32> {
         self.cemetery.clone()
     }
+
     fn clear_cemetery(&mut self) {
         self.cemetery = Vec::new();
     }
-    fn backlink(&self, id: &usize) -> Vec<usize> {
-        self.backlinks[*id].clone()
+
+    fn backlink(&self, id: &u32) -> Vec<u32> {
+        self.backlinks[*id as usize].clone()
     }
-    fn get(&mut self, id: &usize) -> (P, Vec<usize>) {
-        let node = &self.nodes[*id];
+
+    fn get(&mut self, id: &u32) -> (P, Vec<u32>) {
+        let node = &self.nodes[*id as usize];
         node.clone()
     }
+
     fn size_l(&self) -> usize {
         125
     }
+
     fn size_r(&self) -> usize {
         70
     }
+
     fn size_a(&self) -> f32 {
         2.0
     }
-    fn start_id(&self) -> usize {
+
+    fn start_id(&self) -> u32 {
         self.centroid
     }
-    fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
-        for out_i in &self.nodes[*id].1 {
+
+    fn overwirte_out_edges(&mut self, id: &u32, edges: Vec<u32>) {
+        for out_i in &self.nodes[*id as usize].1 {
             let backlinks = &mut self.backlink(out_i);
             backlinks.retain(|out_i| out_i != id)
         }
@@ -224,9 +202,10 @@ where
             backlinks.dedup();
         }
 
-        self.nodes[*id].1 = edges;
+        self.nodes[*id as usize].1 = edges;
     }
 }
+
 ```
 
 ## Indexing

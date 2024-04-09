@@ -8,7 +8,9 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, BufReader};
-use vectune::{Builder as VamanaBuilder, GraphInterface as VectuneGraph, PointInterface as VectunePoint};
+use vectune::{
+    Builder as VamanaBuilder, GraphInterface as VectuneGraph, PointInterface as VectunePoint,
+};
 
 fn read_fvecs(file_path: &str) -> io::Result<Vec<Vec<f32>>> {
     let file = File::open(file_path)?;
@@ -100,25 +102,25 @@ struct Graph<P>
 where
     P: VectunePoint,
 {
-    nodes: Vec<(P, Vec<usize>)>,
-    backlinks: Vec<Vec<usize>>,
-    cemetery: Vec<usize>,
-    centroid: usize,
+    nodes: Vec<(P, Vec<u32>)>,
+    backlinks: Vec<Vec<u32>>,
+    cemetery: Vec<u32>,
+    centroid: u32,
 }
 
 impl<P> VectuneGraph<P> for Graph<P>
 where
     P: VectunePoint,
 {
-    fn alloc(&mut self, _point: P) -> usize {
+    fn alloc(&mut self, _point: P) -> u32 {
         todo!()
     }
 
-    fn free(&mut self, _id: &usize) {
+    fn free(&mut self, _id: &u32) {
         todo!()
     }
 
-    fn cemetery(&self) -> Vec<usize> {
+    fn cemetery(&self) -> Vec<u32> {
         self.cemetery.clone()
     }
 
@@ -126,12 +128,12 @@ where
         self.cemetery = Vec::new();
     }
 
-    fn backlink(&self, id: &usize) -> Vec<usize> {
-        self.backlinks[*id].clone()
+    fn backlink(&self, id: &u32) -> Vec<u32> {
+        self.backlinks[*id as usize].clone()
     }
 
-    fn get(&mut self, id: &usize) -> (P, Vec<usize>) {
-        let node = &self.nodes[*id];
+    fn get(&mut self, id: &u32) -> (P, Vec<u32>) {
+        let node = &self.nodes[*id as usize];
         node.clone()
     }
 
@@ -147,12 +149,12 @@ where
         2.0
     }
 
-    fn start_id(&self) -> usize {
+    fn start_id(&self) -> u32 {
         self.centroid
     }
 
-    fn overwirte_out_edges(&mut self, id: &usize, edges: Vec<usize>) {
-        self.nodes[*id].1 = edges;
+    fn overwirte_out_edges(&mut self, id: &u32, edges: Vec<u32>) {
+        self.nodes[*id as usize].1 = edges;
     }
 }
 
