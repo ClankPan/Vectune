@@ -1,6 +1,35 @@
-[workspace]
-resolver = "2"
-members = [
-  "vectune",
-  "examples"
-]
+[package]
+name = "vectune"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["ClankPan <clankpan24cm@gmail.com>"]
+description = "A lightweight VectorDB with Incremental Indexing, based on FreshVamana."
+keywords = ["Fresh Vamana", "Vector DataBase", "Incremental Indexing", "Lightweight", "DisckANN"]
+categories = ["data-structures", "database", "mathematics"]
+repository = "https://github.com/ClankPan/vectune"
+readme = "README.md"
+
+[dependencies]
+itertools = "0.12.1"
+parking_lot = "0.12.1"
+rand = { version = "0.8", features = ["small_rng"] }
+rayon = "1.10.0"
+rustc-hash = "1.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+getrandom = { version = "0.2", optional = true }
+indicatif = { version = "0.17", optional = true }
+
+[dev-dependencies]
+vectune = {path = "../vectune", features = ["progress-bar"]}
+# vectune = {path = "../vectune", features = []}
+rand = { version = "0.8", features = ["small_rng"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+byteorder = "1.5.0"
+indicatif = "0.17"
+
+[features]
+wasm32-unkown-unknown = ["getrandom/custom"]
+progress-bar = ["indicatif"]

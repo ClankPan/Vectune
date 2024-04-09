@@ -1,4 +1,5 @@
 /target
-embeddings_wiki_random_half.json
 flamegraph.svg
-examples/test_data
+examples/test_data/*
+!examples/test_data/.gitkeep
+.vscode
