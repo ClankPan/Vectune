@@ -16,7 +16,7 @@ By specifying progress-bar in features, you can check the progress of indexing.
 vectune = {version = "0.1.0", features = ["progress-bar"]}
 ```
 
-To perform calculations of Euclidean distances quickly using SIMD, it is necessary to specify `nightly` because it is only available in example. If the `rust-analyzer` in VSCode gives an error for `#![feature(portable_simd)]`, please set up your `.vscode/settings.json`.
+To perform calculations of Euclidean distances quickly using SIMD, it is necessary to specify `nightly` in example. If the `rust-analyzer` in VSCode gives an error for `#![feature(portable_simd)]`, please set up your `.vscode/settings.json`.
 
 ```json
 {
