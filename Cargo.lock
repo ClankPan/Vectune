@@ -356,7 +356,6 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
- "vectune",
 ]
 
 [[package]]

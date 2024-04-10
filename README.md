@@ -36,7 +36,7 @@ To test with the SIFT1M dataset, please execute the following command. SIFT1M is
 curl ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz -o examples/test_data/sift.tar.gz
 tar -xzvf examples/test_data/sift.tar.gz -C examples/test_data
 
-cargo +nightly run --release --example sift1m
+cargo +nightly run --release --features progress-bar --example sift1m
 ```
 
 ### How it works
