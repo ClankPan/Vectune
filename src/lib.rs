@@ -12,8 +12,8 @@ pub mod builder;
 #[cfg(test)]
 mod tests;
 
-pub use crate::traits::point::PointInterface;
-pub use crate::traits::graph::GraphInterface;
+pub use crate::traits::PointInterface;
+pub use crate::traits::GraphInterface;
 pub use crate::builder::*;
 use crate::utils::*;
 
