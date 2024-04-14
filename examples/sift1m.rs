@@ -3,6 +3,7 @@
 use std::simd::f32x4;
 
 use byteorder::{LittleEndian, ReadBytesExt};
+#[cfg(feature = "progress-bar")]
 use indicatif::ProgressBar;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -63,6 +64,12 @@ fn main() {
 
     println!("building vamana...");
     let vamana_builder = VamanaBuilder::default();
+
+    #[cfg(not(feature = "progress-bar"))]
+    let (nodes, centroid) = vamana_builder
+        .build(points);
+
+    #[cfg(feature = "progress-bar")]
     let (nodes, centroid) = vamana_builder
         .progress(ProgressBar::new(1000))
         .build(points);
