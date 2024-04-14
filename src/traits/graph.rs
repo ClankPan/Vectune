@@ -1,9 +1,8 @@
-
 /// Traits that should be implemented for searching, inserting, and deleting after indexing.
 ///
 /// # Exapmles
 ///
-/// ```rust
+/// ```ignore
 /// 
 /// struct Graph<P>
 /// where

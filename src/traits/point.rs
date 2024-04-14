@@ -1,10 +1,8 @@
-
-
 /// Traits that the Point type should implement for use by vectune::Builder.
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// #[derive(Serialize, Deserialize, Clone, Debug)]
 /// struct Point(Vec<f32>);
 /// impl PointInterface for Point {
@@ -16,7 +14,7 @@ pub trait PointInterface: Clone + Sync {
   ///
   /// # Examples
   ///
-  /// ```rust
+  /// ```ignore
   /// fn distance(&self, other: &Self) -> f32 {
   ///     self.0
   ///         .iter()
@@ -38,7 +36,7 @@ pub trait PointInterface: Clone + Sync {
   ///
   ///　# Examples
   ///
-  /// ```rust
+  /// ```ignore
   /// fn add(&self, other: &Self) -> Self {
   ///     Point::from_f32_vec(
   ///         self.to_f32_vec()
@@ -55,7 +53,7 @@ pub trait PointInterface: Clone + Sync {
   ///
   ///　# Examples
   ///
-  /// ```rust
+  /// ```ignore
   /// fn div(&self, divisor: &usize) -> Self {
   ///     Point::from_f32_vec(
   ///         self.to_f32_vec()
