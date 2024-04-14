@@ -11,9 +11,9 @@ use rayon::prelude::*;
 
 use itertools::Itertools;
 
-#[cfg(feature = "indicatif")]
+#[cfg(feature = "progress-bar")]
 use indicatif::ProgressBar;
-#[cfg(feature = "indicatif")]
+#[cfg(feature = "progress-bar")]
 use std::sync::atomic::{self, AtomicUsize};
 
 
@@ -35,7 +35,7 @@ pub struct Builder {
     l: usize,
     seed: u64,
 
-    #[cfg(feature = "indicatif")]
+    #[cfg(feature = "progress-bar")]
     progress: Option<ProgressBar>,
 }
 
@@ -46,7 +46,7 @@ impl Default for Builder {
             r: 70,
             l: 125,
             seed: rand::random(),
-            #[cfg(feature = "indicatif")]
+            #[cfg(feature = "progress-bar")]
             progress: None,
         }
     }
@@ -107,7 +107,7 @@ impl Builder {
         (nodes, s)
     }
 
-    #[cfg(feature = "indicatif")]
+    #[cfg(feature = "progress-bar")]
     pub fn progress(mut self, bar: ProgressBar) -> Self {
         self.progress = Some(bar);
         self
@@ -227,11 +227,11 @@ where
   }
 
   pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
-      #[cfg(feature = "indicatif")]
+      #[cfg(feature = "progress-bar")]
       let progress = &ann.builder.progress;
-      #[cfg(feature = "indicatif")]
+      #[cfg(feature = "progress-bar")]
       let progress_done = AtomicUsize::new(0);
-      #[cfg(feature = "indicatif")]
+      #[cfg(feature = "progress-bar")]
       if let Some(bar) = &progress {
           bar.set_length((ann.nodes.len() * 2) as u64);
           bar.set_message("Build index (preparation)");
@@ -287,7 +287,7 @@ where
                   }
               }
 
-              #[cfg(feature = "indicatif")]
+              #[cfg(feature = "progress-bar")]
               if let Some(bar) = &progress {
                   let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
                   if value % 1000 == 0 {
@@ -308,7 +308,7 @@ where
 
           *ann.nodes[node_i].n_out.write() = ann.prune(&mut n_out_dist);
 
-          #[cfg(feature = "indicatif")]
+          #[cfg(feature = "progress-bar")]
           if let Some(bar) = &progress {
               let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
               if value % 1000 == 0 {
@@ -317,7 +317,7 @@ where
           }
       });
 
-      #[cfg(feature = "indicatif")]
+      #[cfg(feature = "progress-bar")]
       if let Some(bar) = &progress {
           bar.finish();
       }
