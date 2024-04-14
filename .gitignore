@@ -3,3 +3,4 @@ flamegraph.svg
 examples/test_data/*
 !examples/test_data/.gitkeep
 .vscode
+.DS_Store
