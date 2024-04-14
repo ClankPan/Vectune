@@ -1,3 +1,6 @@
+use itertools::Itertools;
+use rand::{rngs::SmallRng, SeedableRng};
+
 use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
 
 #[derive(Clone, Debug)]
@@ -119,7 +122,7 @@ where
 #[test]
 fn fresh_disk_ann_new_empty() {
     let builder = Builder::default();
-    let mut rng = SmallRng::seed_from_u64(builder.seed);
+    let mut rng = SmallRng::seed_from_u64(builder.get_seed());
 
     let ann: Vamana<Point> = Vamana::random_graph_init(Vec::new(), builder, &mut rng);
     assert_eq!(ann.nodes.len(), 0);
@@ -128,7 +131,7 @@ fn fresh_disk_ann_new_empty() {
 #[test]
 fn fresh_disk_ann_new_centroid() {
     let builder = Builder::default();
-    let mut rng = SmallRng::seed_from_u64(builder.seed);
+    let mut rng = SmallRng::seed_from_u64(builder.get_seed());
 
     let mut i = 0;
 
@@ -147,7 +150,7 @@ fn fresh_disk_ann_new_centroid() {
 fn test_vamana_build() {
     let builder = Builder::default();
     // builder.set_seed(11677721592066047712);
-    let l = builder.l;
+    let l = builder.get_l();
 
     let mut i = 0;
 
@@ -175,7 +178,7 @@ fn test_vamana_build() {
 #[test]
 fn search_api() {
     let builder = Builder::default();
-    println!("seed: {}", builder.seed);
+    println!("seed: {}", builder.get_seed());
 
     let mut i = 0;
 
@@ -212,7 +215,7 @@ fn search_api() {
 #[test]
 fn test_greedy_search_with_cemetery() {
     let builder = Builder::default();
-    println!("seed: {}", builder.seed);
+    println!("seed: {}", builder.get_seed());
 
     let mut i = 0;
 
@@ -266,7 +269,7 @@ fn test_greedy_search_with_cemetery() {
 #[test]
 fn test_greedy_search_with_removing_graves() {
     let builder = Builder::default();
-    println!("seed: {}", builder.seed);
+    println!("seed: {}", builder.get_seed());
 
     let mut i = 0;
 
@@ -351,7 +354,7 @@ fn test_greedy_search_with_removing_graves() {
 #[test]
 fn test_insert_new_point() {
     let builder = Builder::default();
-    println!("seed: {}", builder.seed);
+    println!("seed: {}", builder.get_seed());
 
     let mut i = 0;
 
@@ -455,11 +458,11 @@ fn test_insert_new_point() {
 #[test]
 fn greedy_search() {
     let builder = Builder::default();
-    println!("seed: {}", builder.seed);
-    let seed = builder.seed;
+    println!("seed: {}", builder.get_seed());
+    let seed = builder.get_seed();
     // let seed: u64 = 17674802184506369839;
     let mut rng = SmallRng::seed_from_u64(seed);
-    let l = builder.l;
+    let l = builder.get_l();
 
     let mut i = 0;
 
