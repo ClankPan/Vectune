@@ -17,6 +17,23 @@ pub use crate::traits::GraphInterface;
 pub use crate::builder::*;
 use crate::utils::*;
 
+/*
+メモ：
+どのような順番で並び替えるかのヒントだけ出力して、実際の並び替えはここでは行わない方針
+SSDなどのストレージのapiに合わせた処理をcaller側で書いてもらう。
+*/
+pub fn reorder<P>(
+    nodes: &Vec<(P, Vec<u32>)>,
+    backlinks: &Vec<Vec<u32>>,
+    sector_size: u32,
+    node_size: u32,
+)
+where
+    P: PointInterface,
+{
+
+}
+
 
 /// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
 ///
