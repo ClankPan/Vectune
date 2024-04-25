@@ -1,4 +1,5 @@
 use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
+use rand::SeedableRng;
 
 #[derive(Clone, Debug)]
 struct Point(Vec<u32>);
@@ -143,6 +144,7 @@ fn get_backlinks(nodes: &Vec<(Point, Vec<u32>)>) -> Vec<Vec<u32>> {
 #[test]
 fn test_parallel_gorder() {
     let builder = Builder::default().set_seed(10910418820652569485);
+    let mut rng = SmallRng::seed_from_u64(builder.get_seed());
     // let builder = Builder::default();
 
     println!("seed: {}", builder.get_seed());
@@ -176,6 +178,7 @@ fn test_parallel_gorder() {
         nodes.iter().map(|(_, outs)| outs.clone()).collect(),
         backlinks,
         10,
+        &mut rng,
     );
 
     println!("ordered_nodes: {:?}\n", ordered_nodes.iter().sorted());
@@ -202,7 +205,7 @@ fn test_parallel_gorder() {
             (p, outs)
         })
         .collect();
-    
+
     let centroid = ordered_table[centroid as usize];
 
     let backlinks: Vec<Vec<u32>> = get_backlinks(&nodes);
@@ -230,7 +233,6 @@ fn test_parallel_gorder() {
     for i in 0..10 {
         assert_eq!(k_anns[i].0, expected_k_anns[i].0);
     }
-
 }
 
 #[test]

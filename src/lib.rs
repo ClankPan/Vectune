@@ -6,7 +6,6 @@
 use itertools::Itertools;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -27,29 +26,28 @@ use crate::utils::*;
 
 fn pack_node(
     original_index: &u32,
-    shuffled_nodes: &Vec<(usize, AtomicBool, &Vec<u32>)>,
+    shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>,
     shuffle_table: &Vec<usize>,
 ) -> bool {
-    // println!("{}", original_index);
     let shuffled_index = shuffle_table[*original_index as usize];
     let packed_flag = &shuffled_nodes[shuffled_index].1;
-    match packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    let is_packed =
+        match packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => true,
+            Err(_) => false,
+        };
+
+    is_packed
 }
 
-fn select_random_s(
-    shuffled_nodes: &Vec<(usize, AtomicBool, &Vec<u32>)>,
-    shuffle_table: &Vec<usize>,
-) -> Result<u32, ()> {
+fn select_random_s(shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>) -> Result<u32, ()> {
     let mut scan_index = 0;
     loop {
         let packed_flag = &shuffled_nodes[scan_index].1;
         match packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => {
-                let original_index = shuffle_table[scan_index];
-                return Ok(original_index as u32);
+                let original_index = &shuffled_nodes[scan_index].0;
+                return Ok(*original_index);
             }
             Err(_) => {
                 scan_index += 1;
@@ -65,7 +63,7 @@ fn sector_packing(
     window_size: usize,
     nodes: &Vec<Vec<u32>>,
     backlinks: &Vec<Vec<u32>>,
-    shuffled_nodes: &Vec<(usize, AtomicBool, &Vec<u32>)>,
+    shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>,
     shuffle_table: &Vec<usize>,
 ) -> Vec<u32> {
     let mut sub_array = Vec::with_capacity(window_size as usize);
@@ -73,7 +71,7 @@ fn sector_packing(
     let mut heap = KeyMaxHeap::new();
 
     // Pick a random, unpacked seed node s.
-    sub_array.push(select_random_s(&shuffled_nodes, &shuffle_table).unwrap());
+    sub_array.push(select_random_s(&shuffled_nodes).unwrap());
 
     while sub_array_index < window_size {
         // 𝑣𝑒 ← 𝑃 [𝑖];𝑖 ← 𝑖 + 1
@@ -101,7 +99,7 @@ fn sector_packing(
             match heap.get_max() {
                 None => {
                     // if H.empty() then Pick a random unpacked seed node 𝑣max and break.
-                    match select_random_s(&shuffled_nodes, &shuffle_table) {
+                    match select_random_s(&shuffled_nodes) {
                         Ok(s) => {
                             break s;
                         }
@@ -125,21 +123,22 @@ fn sector_packing(
     sub_array
 }
 
-pub fn reorder(nodes: Vec<Vec<u32>>, backlinks: Vec<Vec<u32>>, window_size: usize) -> Vec<u32> {
+pub fn reorder(
+    nodes: Vec<Vec<u32>>,
+    backlinks: Vec<Vec<u32>>,
+    window_size: usize,
+    rng: &mut SmallRng,
+) -> Vec<u32> {
     /* Parallel Gordering */
-    let seed: u64 = rand::random();
-    let mut rng = SmallRng::seed_from_u64(seed);
-    // let window_size = &sector_size / &node_size;
-
     // Select unpacked node randamly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
     // The nodes are shuffled to ensure that start nodes are randomly selected.
-    let mut shuffled_nodes: Vec<(usize, AtomicBool, &Vec<u32>)> = nodes
+    let mut shuffled_nodes: Vec<(u32, AtomicBool, &Vec<u32>)> = nodes
         .iter()
         .enumerate()
-        .map(|(original_idx, n_out)| (original_idx, AtomicBool::new(false), n_out))
+        .map(|(original_idx, n_out)| (original_idx as u32, AtomicBool::new(false), n_out))
         .collect();
-    shuffled_nodes.shuffle(&mut rng);
+    shuffled_nodes.shuffle(rng);
     let shuffle_table: Vec<usize> = shuffled_nodes
         .iter()
         .enumerate()
@@ -153,6 +152,7 @@ pub fn reorder(nodes: Vec<Vec<u32>>, backlinks: Vec<Vec<u32>>, window_size: usiz
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
     let mut reordered: Vec<u32> = (0..(nodes.len() / window_size as usize) - 1)
         .into_par_iter()
+        // .into_iter()
         .map(|_start_array_position: usize| {
             sector_packing(
                 window_size,
@@ -209,10 +209,6 @@ impl KeyMaxHeap {
         }
         None
     }
-
-    // fn empty(&self) -> bool {
-    //     self.heap.is_empty()
-    // }
 }
 
 /// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
