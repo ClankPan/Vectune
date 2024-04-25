@@ -270,3 +270,17 @@ Completely remove the nodes returned by `graph.cemetery()` from the graph.
 ```rust
 vectune::delete(&mut graph);
 ```
+
+## Ordering
+
+Reordering the arrangement to efficiently reference nodes from storage such as SSDs.
+This algorithm is proposed in Section 4 of this [paper](https://arxiv.org/pdf/2211.12850v2.pdf). 
+
+```rust
+vectune::gorder(
+    edges,      // Vec<Vec<u32>>
+    backlinks,  // Vec<Vec<u32>>
+    10,         // Number of nodes in one section
+    &mut rng,
+);
+```

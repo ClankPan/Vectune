@@ -101,6 +101,10 @@ fn sector_packing(
   sub_array
 }
 
+///
+/// Reordering the arrangement to efficiently reference nodes from storage such as SSDs.
+/// This algorithm is proposed in Section 4 of this [paper](https://arxiv.org/pdf/2211.12850v2.pdf). 
+///
 pub fn gorder(
   nodes: Vec<Vec<u32>>,
   backlinks: Vec<Vec<u32>>,
