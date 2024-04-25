@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 #![feature(portable_simd)]
 
 use std::simd::f32x4;
@@ -66,8 +68,7 @@ fn main() {
     let vamana_builder = VamanaBuilder::default();
 
     #[cfg(not(feature = "progress-bar"))]
-    let (nodes, centroid) = vamana_builder
-        .build(points);
+    let (nodes, centroid) = vamana_builder.build(points);
 
     #[cfg(feature = "progress-bar")]
     let (nodes, centroid) = vamana_builder

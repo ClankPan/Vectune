@@ -1,7 +1,8 @@
-use itertools::Itertools;
-use rand::{rngs::SmallRng, SeedableRng};
-
 use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
+use rand::SeedableRng;
+use itertools::Itertools;
+use rand::rngs::SmallRng;
+
 
 #[derive(Clone, Debug)]
 struct Point(Vec<u32>);
@@ -119,6 +120,124 @@ where
     }
 }
 
+fn get_backlinks(nodes: &Vec<(Point, Vec<u32>)>) -> Vec<Vec<u32>> {
+    let backlinks: Vec<Vec<u32>> = nodes
+        .iter()
+        .enumerate()
+        .flat_map(|(node_i, node)| {
+            node.1
+                .iter()
+                .map(|out_i| (*out_i, node_i))
+                .collect::<Vec<_>>()
+        })
+        .sorted_by_key(|&(k, _)| k)
+        .group_by(|&(k, _)| k)
+        .into_iter()
+        .map(|(_key, group)| {
+            group
+                .into_iter()
+                .map(|(_, i)| i as u32)
+                .sorted()
+                .collect::<Vec<u32>>()
+        })
+        .collect();
+    backlinks
+}
+
+#[test]
+fn test_parallel_gorder() {
+    let builder = Builder::default().set_seed(10910418820652569485);
+    let mut rng = SmallRng::seed_from_u64(builder.get_seed());
+    // let builder = Builder::default();
+
+    println!("seed: {}", builder.get_seed());
+
+    let mut i = 0;
+
+    let points: Vec<Point> = (0..105)
+        .map(|_| {
+            let a = i;
+            i += 1;
+            Point(vec![a; Point::dim() as usize])
+        })
+        .collect();
+
+    let (nodes, centroid) = builder.build(points);
+
+    // for (node_i, node) in nodes.iter().enumerate() {
+    //     println!("id: {}, {:?}", node_i, node.1);
+    // }
+
+    let backlinks: Vec<Vec<u32>> = get_backlinks(&nodes);
+
+    let mut original_graph = Graph {
+        nodes: nodes.clone(),
+        backlinks: backlinks.clone(),
+        cemetery: Vec::new(),
+        centroid,
+    };
+
+    let ordered_nodes = super::gorder(
+        nodes.iter().map(|(_, outs)| outs.clone()).collect(),
+        backlinks,
+        10,
+        &mut rng,
+    );
+
+    println!("ordered_nodes: {:?}\n", ordered_nodes.iter().sorted());
+
+    assert_eq!(nodes.len(), ordered_nodes.len());
+
+    // Create a conversion table from ordered_nodes to original_index->ordered_index.
+    let ordered_table: Vec<u32> = ordered_nodes
+        .iter()
+        .enumerate()
+        .map(|(ordered_index, original_index)| (original_index, ordered_index as u32))
+        .sorted()
+        .map(|(_, ordered_index)| ordered_index)
+        .collect();
+    // Replace all, including P
+    let nodes: Vec<(Point, Vec<u32>)> = ordered_nodes
+        .into_iter()
+        .map(|original_index| {
+            let (p, outs) = nodes[original_index as usize].clone();
+            let outs: Vec<u32> = outs
+                .into_iter()
+                .map(|original_index| ordered_table[original_index as usize])
+                .collect();
+            (p, outs)
+        })
+        .collect();
+
+    let centroid = ordered_table[centroid as usize];
+
+    let backlinks: Vec<Vec<u32>> = get_backlinks(&nodes);
+
+    for (node_i, node) in nodes.iter().enumerate() {
+        println!("id: {}, {:?}", node_i, node.1);
+    }
+
+    let mut graph = Graph {
+        nodes,
+        backlinks,
+        cemetery: Vec::new(),
+        centroid,
+    };
+
+    let xq = Point(vec![0; Point::dim() as usize]);
+    let k = 10;
+    // let (k_anns, _visited) = ann.greedy_search(&xq, k, l);
+    let (k_anns, _visited) = super::search(&mut graph, &xq, k);
+
+    let expected_k_anns = super::search(&mut original_graph, &xq, k).0;
+
+    println!("k_anns:\t\t{:?}\noriginal:\t{:?}", k_anns, expected_k_anns);
+
+    for i in 0..10 {
+        assert_eq!(k_anns[i].0, expected_k_anns[i].0);
+    }
+}
+
 #[test]
 fn fresh_disk_ann_new_empty() {
     let builder = Builder::default();
@@ -171,7 +290,7 @@ fn test_vamana_build() {
 
     println!("{:?}", k_anns);
     for i in 0..10 {
-        assert_eq!(k_anns[i].1, i  as u32);
+        assert_eq!(k_anns[i].1, i as u32);
     }
 }
 
@@ -447,8 +566,7 @@ fn test_insert_new_point() {
     }
 
     let (k_anns_inserted, _visited) = super::search(&mut graph, &xq, k);
-    let k_anns_inserted_ids: Vec<u32> =
-        k_anns_inserted.into_iter().map(|(_, id)| id).collect();
+    let k_anns_inserted_ids: Vec<u32> = k_anns_inserted.into_iter().map(|(_, id)| id).collect();
     k_anns_ids[3] = new_ids[0];
     k_anns_ids[5] = new_ids[1];
     k_anns_ids[9] = new_ids[2];
@@ -574,4 +692,3 @@ fn test_insert_dist() {
         ]
     )
 }
-

@@ -3,19 +3,29 @@
     Copyright © ClankPan 2024.
 */
 
+// use itertools::Itertools;
+// use rand::rngs::SmallRng;
+// use rand::seq::SliceRandom;
+// use rayon::iter::IntoParallelIterator;
+// use rayon::iter::ParallelIterator;
 use rustc_hash::FxHashSet;
+// use std::collections::BinaryHeap;
+// use std::sync::atomic::{AtomicBool, Ordering};
 
+pub mod builder;
 pub mod traits;
 pub mod utils;
-pub mod builder;
+pub mod gorder;
 
 #[cfg(test)]
 mod tests;
 
-pub use crate::traits::PointInterface;
-pub use crate::traits::GraphInterface;
 pub use crate::builder::*;
+pub use crate::traits::GraphInterface;
+pub use crate::traits::PointInterface;
 use crate::utils::*;
+pub use crate::gorder::gorder;
+
 
 
 /// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
@@ -30,11 +40,7 @@ use crate::utils::*;
 /// let (results, visited) = vectune::search(&mut graph, &Point(query), 50);
 /// ```
 ///
-pub fn search<P, G>(
-    graph: &mut G,
-    query_point: &P,
-    k: usize,
-) -> (Vec<(f32, u32)>, Vec<(f32, u32)>)
+pub fn search<P, G>(graph: &mut G, query_point: &P, k: usize) -> (Vec<(f32, u32)>, Vec<(f32, u32)>)
 where
     P: PointInterface,
     G: GraphInterface<P>,
