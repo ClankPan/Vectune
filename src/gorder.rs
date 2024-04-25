@@ -112,7 +112,7 @@ pub fn gorder(
   rng: &mut SmallRng,
 ) -> Vec<u32> {
   /* Parallel Gordering */
-  // Select unpacked node randamly.
+  // Select unpacked node randomly.
   // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
   // The nodes are shuffled to ensure that start nodes are randomly selected.
   let mut shuffled_nodes: Vec<(u32, AtomicBool, &Vec<u32>)> = nodes
