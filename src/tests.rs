@@ -188,7 +188,7 @@ fn test_parallel_gorder() {
 
     assert_eq!(nodes.len(), ordered_nodes.len());
 
-    // ordered_nodesから、original_index->ordered_indexへの変換表を作る。
+    // Create a conversion table from ordered_nodes to original_index->ordered_index.
     let ordered_table: Vec<u32> = ordered_nodes
         .iter()
         .enumerate()
@@ -196,7 +196,7 @@ fn test_parallel_gorder() {
         .sorted()
         .map(|(_, ordered_index)| ordered_index)
         .collect();
-    // Pを含めて全て置換する
+    // Replace all, including P
     let nodes: Vec<(Point, Vec<u32>)> = ordered_nodes
         .into_iter()
         .map(|original_index| {
