@@ -261,13 +261,13 @@ where
 
                 // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
                 let mut new_n_out = ann.prune(&mut candidates);
-                let new_added_ids = diff_ids(&ann.nodes[i as usize].n_out.read(), &prev_n_out);
+                let new_added_ids = diff_ids(&ann.nodes[i].n_out.read(), &prev_n_out);
                 for out_i in new_added_ids {
                     insert_id(out_i, &mut new_n_out);
                 }
 
                 {
-                    let mut current_n_out = ann.nodes[i as usize].n_out.write();
+                    let mut current_n_out = ann.nodes[i].n_out.write();
                     current_n_out.clone_from(&new_n_out);
                 } // unlock the write lock
 

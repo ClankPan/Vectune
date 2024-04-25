@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 #![feature(portable_simd)]
 
 use std::simd::f32x4;

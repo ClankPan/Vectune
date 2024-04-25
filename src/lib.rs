@@ -31,13 +31,8 @@ fn pack_node(
 ) -> bool {
     let shuffled_index = shuffle_table[*original_index as usize];
     let packed_flag = &shuffled_nodes[shuffled_index].1;
-    let is_packed =
-        match packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(_) => true,
-            Err(_) => false,
-        };
-
-    is_packed
+    
+    packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok()
 }
 
 fn select_random_s(shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>) -> Result<u32, ()> {
@@ -66,12 +61,12 @@ fn sector_packing(
     shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>,
     shuffle_table: &Vec<usize>,
 ) -> Vec<u32> {
-    let mut sub_array = Vec::with_capacity(window_size as usize);
+    let mut sub_array = Vec::with_capacity(window_size);
     let mut sub_array_index = 0;
     let mut heap = KeyMaxHeap::new();
 
     // Pick a random, unpacked seed node s.
-    sub_array.push(select_random_s(&shuffled_nodes).unwrap());
+    sub_array.push(select_random_s(shuffled_nodes).unwrap());
 
     while sub_array_index < window_size {
         // 𝑣𝑒 ← 𝑃 [𝑖];𝑖 ← 𝑖 + 1
@@ -99,7 +94,7 @@ fn sector_packing(
             match heap.get_max() {
                 None => {
                     // if H.empty() then Pick a random unpacked seed node 𝑣max and break.
-                    match select_random_s(&shuffled_nodes) {
+                    match select_random_s(shuffled_nodes) {
                         Ok(s) => {
                             break s;
                         }
@@ -111,7 +106,7 @@ fn sector_packing(
                 }
                 Some((v_max_candidate_index, _)) => {
                     // if not D [𝑣max ] then break
-                    if pack_node(&v_max_candidate_index, &shuffled_nodes, &shuffle_table) {
+                    if pack_node(&v_max_candidate_index, shuffled_nodes, shuffle_table) {
                         break v_max_candidate_index;
                     }
                 }
@@ -150,7 +145,7 @@ pub fn reorder(
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
     //   Pick a random, unpacked seed node 𝑠.
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-    let mut reordered: Vec<u32> = (0..(nodes.len() / window_size as usize) - 1)
+    let mut reordered: Vec<u32> = (0..(nodes.len() / window_size) - 1)
         .into_par_iter()
         // .into_iter()
         .map(|_start_array_position: usize| {
