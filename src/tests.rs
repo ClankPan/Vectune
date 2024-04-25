@@ -1,5 +1,8 @@
 use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
 use rand::SeedableRng;
+use itertools::Itertools;
+use rand::rngs::SmallRng;
+
 
 #[derive(Clone, Debug)]
 struct Point(Vec<u32>);
@@ -174,7 +177,7 @@ fn test_parallel_gorder() {
         centroid,
     };
 
-    let ordered_nodes = super::reorder(
+    let ordered_nodes = super::gorder(
         nodes.iter().map(|(_, outs)| outs.clone()).collect(),
         backlinks,
         10,
