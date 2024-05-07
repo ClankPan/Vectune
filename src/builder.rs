@@ -126,9 +126,11 @@ impl<P> Vamana<P>
 where
     P: PointInterface,
 {
-    pub fn new(points: Vec<P>, builder: Builder) -> Self {
+    pub fn new(mut points: Vec<P>, builder: Builder) -> Self {
         let mut rng = SmallRng::seed_from_u64(builder.seed);
         // println!("seed: {}", builder.seed);
+
+        points.shuffle(&mut rng); // To ensure randomness in the Gorder, shuffle them here in advance.
 
         let start_time = Instant::now();
         let mut ann = Vamana::<P>::random_graph_init(points, builder, &mut rng);

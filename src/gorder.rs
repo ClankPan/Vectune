@@ -1,6 +1,3 @@
-use itertools::Itertools;
-use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rustc_hash::FxHashMap;
@@ -9,31 +6,29 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 fn pack_node(
     original_index: &u32,
-    shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>,
-    shuffle_table: &Vec<usize>,
+    packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>,
 ) -> bool {
-    let shuffled_index = shuffle_table[*original_index as usize];
-    let packed_flag = &shuffled_nodes[shuffled_index].1;
+    let packed_flag = &packed_nodes_table[*original_index as usize].0;
 
     packed_flag
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
 }
 
-fn select_random_s(shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>) -> Result<u32, ()> {
+fn select_random_s(packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>) -> Result<u32, ()> {
     let mut scan_index = 0;
     loop {
-        let packed_flag = &shuffled_nodes[scan_index].1;
+        let packed_flag = &packed_nodes_table[scan_index].0;
         match packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => {
-                let original_index = &shuffled_nodes[scan_index].0;
-                return Ok(*original_index);
+                let original_index = scan_index as u32;
+                return Ok(original_index);
             }
             Err(_) => {
                 scan_index += 1;
             }
         }
-        if scan_index == shuffled_nodes.len() {
+        if scan_index == packed_nodes_table.len() {
             return Err(());
         }
     }
@@ -43,15 +38,14 @@ fn sector_packing(
     window_size: usize,
     nodes: &Vec<Vec<u32>>,
     backlinks: &Vec<Vec<u32>>,
-    shuffled_nodes: &Vec<(u32, AtomicBool, &Vec<u32>)>,
-    shuffle_table: &Vec<usize>,
+    packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>,
 ) -> Vec<u32> {
     let mut sub_array = Vec::with_capacity(window_size);
     let mut sub_array_index = 0;
     let mut heap = KeyMaxHeap::new();
 
     // Pick a random, unpacked seed node s.
-    sub_array.push(select_random_s(shuffled_nodes).unwrap());
+    sub_array.push(select_random_s(packed_nodes_table).unwrap());
 
     while sub_array_index < window_size {
         // 𝑣𝑒 ← 𝑃 [𝑖];𝑖 ← 𝑖 + 1
@@ -79,7 +73,7 @@ fn sector_packing(
             match heap.get_max() {
                 None => {
                     // if H.empty() then Pick a random unpacked seed node 𝑣max and break.
-                    match select_random_s(shuffled_nodes) {
+                    match select_random_s(packed_nodes_table) {
                         Ok(s) => {
                             break s;
                         }
@@ -91,7 +85,7 @@ fn sector_packing(
                 }
                 Some((v_max_candidate_index, _)) => {
                     // if not D [𝑣max ] then break
-                    if pack_node(&v_max_candidate_index, shuffled_nodes, shuffle_table) {
+                    if pack_node(&v_max_candidate_index, packed_nodes_table) {
                         break v_max_candidate_index;
                     }
                 }
@@ -111,24 +105,14 @@ pub fn gorder(
     nodes: Vec<Vec<u32>>,
     backlinks: Vec<Vec<u32>>,
     window_size: usize,
-    rng: &mut SmallRng,
 ) -> Vec<u32> {
     /* Parallel Gordering */
     // Select unpacked node randomly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
     // The nodes are shuffled to ensure that start nodes are randomly selected.
-    let mut shuffled_nodes: Vec<(u32, AtomicBool, &Vec<u32>)> = nodes
+    let packed_nodes_table: Vec<(AtomicBool, &Vec<u32>)> = nodes
         .iter()
-        .enumerate()
-        .map(|(original_idx, n_out)| (original_idx as u32, AtomicBool::new(false), n_out))
-        .collect();
-    shuffled_nodes.shuffle(rng);
-    let shuffle_table: Vec<usize> = shuffled_nodes
-        .iter()
-        .enumerate()
-        .map(|(shuffled_index, (original_idx, _, _))| (*original_idx, shuffled_index))
-        .sorted()
-        .map(|(_, shuffled_index)| shuffled_index)
+        .map(|n_out| (AtomicBool::new(false), n_out))
         .collect();
 
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
@@ -142,8 +126,7 @@ pub fn gorder(
                 window_size,
                 &nodes,
                 &backlinks,
-                &shuffled_nodes,
-                &shuffle_table,
+                &packed_nodes_table,
             )
         })
         .flatten()
@@ -155,8 +138,7 @@ pub fn gorder(
         window_size,
         &nodes,
         &backlinks,
-        &shuffled_nodes,
-        &shuffle_table,
+        &packed_nodes_table,
     ));
 
     reordered
