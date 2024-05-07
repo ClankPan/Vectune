@@ -1,8 +1,7 @@
 use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
-use rand::SeedableRng;
 use itertools::Itertools;
 use rand::rngs::SmallRng;
-
+use rand::SeedableRng;
 
 #[derive(Clone, Debug)]
 struct Point(Vec<u32>);

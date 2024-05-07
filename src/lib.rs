@@ -13,20 +13,18 @@ use rustc_hash::FxHashSet;
 // use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod builder;
+pub mod gorder;
 pub mod traits;
 pub mod utils;
-pub mod gorder;
 
 #[cfg(test)]
 mod tests;
 
 pub use crate::builder::*;
+pub use crate::gorder::gorder;
 pub use crate::traits::GraphInterface;
 pub use crate::traits::PointInterface;
 use crate::utils::*;
-pub use crate::gorder::gorder;
-
-
 
 /// Performs Greedy-Best-First-Search on a Graph that implements the GraphInterface trait.
 ///
