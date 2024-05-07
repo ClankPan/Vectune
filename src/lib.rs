@@ -153,6 +153,7 @@ where
     let (_list, mut visited) = search(graph, &new_p, 1);
     // 𝑁out(𝑝) ← RobustPrune(𝑝, V, 𝛼, 𝑅) (Algorithm 3)
     let n_out = prune(|id| graph.get(id), &mut visited, &r, &a);
+    graph.overwirte_out_edges(&new_id, n_out.clone());
 
     // foreach 𝑗 ∈ 𝑁out(𝑝) do
     for j in &n_out {
