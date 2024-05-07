@@ -4,10 +4,7 @@ use rustc_hash::FxHashMap;
 use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-fn pack_node(
-    original_index: &u32,
-    packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>,
-) -> bool {
+fn pack_node(original_index: &u32, packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>) -> bool {
     let packed_flag = &packed_nodes_table[*original_index as usize].0;
 
     packed_flag
@@ -101,11 +98,7 @@ fn sector_packing(
 /// Reordering the arrangement to efficiently reference nodes from storage such as SSDs.
 /// This algorithm is proposed in Section 4 of this [paper](https://arxiv.org/pdf/2211.12850v2.pdf).
 ///
-pub fn gorder(
-    nodes: Vec<Vec<u32>>,
-    backlinks: Vec<Vec<u32>>,
-    window_size: usize,
-) -> Vec<u32> {
+pub fn gorder(nodes: Vec<Vec<u32>>, backlinks: Vec<Vec<u32>>, window_size: usize) -> Vec<u32> {
     /* Parallel Gordering */
     // Select unpacked node randomly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
@@ -122,12 +115,7 @@ pub fn gorder(
         .into_par_iter()
         // .into_iter()
         .map(|_start_array_position: usize| {
-            sector_packing(
-                window_size,
-                &nodes,
-                &backlinks,
-                &packed_nodes_table,
-            )
+            sector_packing(window_size, &nodes, &backlinks, &packed_nodes_table)
         })
         .flatten()
         .collect();
