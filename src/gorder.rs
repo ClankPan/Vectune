@@ -33,12 +33,16 @@ fn select_random_s(packed_nodes_table: &Vec<AtomicBool>) -> Result<u32, ()> {
     }
 }
 
-fn sector_packing(
+fn sector_packing<F1, F2>(
     window_size: usize,
-    nodes: &Vec<Vec<u32>>,
-    backlinks: &Vec<Vec<u32>>,
+    get_edges: &F1,
+    get_backlinks: &F2,
     packed_nodes_table: &Vec<AtomicBool>,
-) -> Vec<u32> {
+) -> Vec<u32>
+where
+    F1: Fn(&u32)->Vec<u32>,
+    F2: Fn(&u32)->Vec<u32>,
+{
     let mut sub_array = Vec::with_capacity(window_size);
     let mut sub_array_index = 0;
     let mut heap = KeyMaxHeap::new();
@@ -53,18 +57,18 @@ fn sector_packing(
 
         // for 𝑢 ∈ 𝑁out(𝑣𝑒 ) do
         //   H.IncrementKey(𝑢)
-        for u in &nodes[*ve as usize] {
-            heap.increment_key(*u);
+        for u in get_edges(ve) {
+            heap.increment_key(u);
         }
 
         //  for 𝑢 ∈ 𝑁in (𝑣𝑒 ) do
         //    H.IncrementKey(𝑢)
         //      for 𝑡 ∈ 𝑁out(𝑢) do
         //        H.IncrementKey(𝑡)
-        for u in &backlinks[*ve as usize] {
-            heap.increment_key(*u);
-            for t in &nodes[*u as usize] {
-                heap.increment_key(*t);
+        for u in get_backlinks(ve) {
+            heap.increment_key(u);
+            for t in get_edges(&u) {
+                heap.increment_key(t);
             }
         }
 
@@ -100,17 +104,15 @@ fn sector_packing(
 /// Reordering the arrangement to efficiently reference nodes from storage such as SSDs.
 /// This algorithm is proposed in Section 4 of this [paper](https://arxiv.org/pdf/2211.12850v2.pdf).
 ///
-// pub fn gorder<F>(
-pub fn gorder(
-    nodes: Vec<Vec<u32>>,
-    backlinks: Vec<Vec<u32>>,
-
+pub fn gorder<F1, F2>(
+    get_edges: F1,
+    get_backlinks: F2,
     target_node_bit_vec: BitVec,
-
     window_size: usize,
 ) -> Vec<u32>
-// where
-//     F: Fn(&u32)->Vec<u32>,
+where
+    F1: Fn(&u32)->Vec<u32> + std::marker::Sync,
+    F2: Fn(&u32)->Vec<u32> + std::marker::Sync,
 {
     /* Parallel Gordering */
     // Select unpacked node randomly.
@@ -128,11 +130,11 @@ pub fn gorder(
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
     //   Pick a random, unpacked seed node 𝑠.
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-    let mut reordered: Vec<u32> = (0..(nodes.len() / window_size) - 1)
+    let mut reordered: Vec<u32> = (0..(packed_nodes_table.len() / window_size) - 1)
         .into_par_iter()
         // .into_iter()
         .map(|_start_array_position: usize| {
-            sector_packing(window_size, &nodes, &backlinks, &packed_nodes_table)
+            sector_packing(window_size, &get_edges, &get_backlinks, &packed_nodes_table)
         })
         .flatten()
         .collect();
@@ -141,8 +143,8 @@ pub fn gorder(
     // SectorPack(𝑃 [ ⌊ |X|/𝑤⌋ ∗ 𝑤], D, 𝑠, 𝑤,)
     reordered.extend(sector_packing(
         window_size,
-        &nodes,
-        &backlinks,
+        &get_edges,
+        &get_backlinks,
         &packed_nodes_table,
     ));
 

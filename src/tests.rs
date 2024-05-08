@@ -120,7 +120,7 @@ where
     }
 }
 
-fn get_backlinks(nodes: &Vec<(Point, Vec<u32>)>) -> Vec<Vec<u32>> {
+fn gen_backlinks(nodes: &Vec<(Point, Vec<u32>)>) -> Vec<Vec<u32>> {
     let backlinks: Vec<Vec<u32>> = nodes
         .iter()
         .enumerate()
@@ -168,7 +168,7 @@ fn test_parallel_gorder() {
     //     println!("id: {}, {:?}", node_i, node.1);
     // }
 
-    let backlinks: Vec<Vec<u32>> = get_backlinks(&nodes);
+    let backlinks: Vec<Vec<u32>> = gen_backlinks(&nodes);
 
     let mut original_graph = Graph {
         nodes: nodes.clone(),
@@ -177,9 +177,21 @@ fn test_parallel_gorder() {
         centroid,
     };
 
+    // let ordered_nodes = super::gorder(
+    //     nodes.iter().map(|(_, outs)| outs.clone()).collect(),
+    //     backlinks,
+    //     BitVec::from_elem(nodes.len(), false),
+    //     10,
+    // );
+    let get_edges = |id: &u32|->Vec<u32> {
+        nodes[*id as usize].1.clone()
+    };
+    let get_backlinks = |id: &u32|->Vec<u32> {
+        backlinks[*id as usize].clone()
+    };
     let ordered_nodes = super::gorder(
-        nodes.iter().map(|(_, outs)| outs.clone()).collect(),
-        backlinks,
+        get_edges,
+        get_backlinks,
         BitVec::from_elem(nodes.len(), false),
         10,
     );
@@ -211,7 +223,7 @@ fn test_parallel_gorder() {
 
     let centroid = ordered_table[centroid as usize];
 
-    let backlinks: Vec<Vec<u32>> = get_backlinks(&nodes);
+    let backlinks: Vec<Vec<u32>> = gen_backlinks(&nodes);
 
     for (node_i, node) in nodes.iter().enumerate() {
         println!("id: {}, {:?}", node_i, node.1);
