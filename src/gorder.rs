@@ -3,19 +3,21 @@ use rayon::iter::ParallelIterator;
 use rustc_hash::FxHashMap;
 use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use bit_vec::BitVec;
 
-fn pack_node(original_index: &u32, packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>) -> bool {
-    let packed_flag = &packed_nodes_table[*original_index as usize].0;
+
+fn pack_node(original_index: &u32, packed_nodes_table: &Vec<AtomicBool>) -> bool {
+    let packed_flag = &packed_nodes_table[*original_index as usize];
 
     packed_flag
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
 }
 
-fn select_random_s(packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>) -> Result<u32, ()> {
+fn select_random_s(packed_nodes_table: &Vec<AtomicBool>) -> Result<u32, ()> {
     let mut scan_index = 0;
     loop {
-        let packed_flag = &packed_nodes_table[scan_index].0;
+        let packed_flag = &packed_nodes_table[scan_index];
         match packed_flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => {
                 let original_index = scan_index as u32;
@@ -35,7 +37,7 @@ fn sector_packing(
     window_size: usize,
     nodes: &Vec<Vec<u32>>,
     backlinks: &Vec<Vec<u32>>,
-    packed_nodes_table: &Vec<(AtomicBool, &Vec<u32>)>,
+    packed_nodes_table: &Vec<AtomicBool>,
 ) -> Vec<u32> {
     let mut sub_array = Vec::with_capacity(window_size);
     let mut sub_array_index = 0;
@@ -98,14 +100,29 @@ fn sector_packing(
 /// Reordering the arrangement to efficiently reference nodes from storage such as SSDs.
 /// This algorithm is proposed in Section 4 of this [paper](https://arxiv.org/pdf/2211.12850v2.pdf).
 ///
-pub fn gorder(nodes: Vec<Vec<u32>>, backlinks: Vec<Vec<u32>>, window_size: usize) -> Vec<u32> {
+// pub fn gorder<F>(
+pub fn gorder(
+    nodes: Vec<Vec<u32>>,
+    backlinks: Vec<Vec<u32>>,
+
+    target_node_bit_vec: BitVec,
+
+    window_size: usize,
+) -> Vec<u32>
+// where
+//     F: Fn(&u32)->Vec<u32>,
+{
     /* Parallel Gordering */
     // Select unpacked node randomly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
     // The nodes are shuffled to ensure that start nodes are randomly selected.
-    let packed_nodes_table: Vec<(AtomicBool, &Vec<u32>)> = nodes
-        .iter()
-        .map(|n_out| (AtomicBool::new(false), n_out))
+    // let packed_nodes_table: Vec<(AtomicBool, &Vec<u32>)> = nodes
+    //     .iter()
+    //     .map(|n_out| (AtomicBool::new(false), n_out))
+    //     .collect();
+    let packed_nodes_table: Vec<AtomicBool> = target_node_bit_vec
+        .into_iter()
+        .map(|bit| AtomicBool::new(bit))
         .collect();
 
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do

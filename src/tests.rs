@@ -1,4 +1,5 @@
 use super::{GraphInterface as VGraph, PointInterface as VPoint, *};
+use bit_vec::BitVec;
 use itertools::Itertools;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
@@ -179,6 +180,7 @@ fn test_parallel_gorder() {
     let ordered_nodes = super::gorder(
         nodes.iter().map(|(_, outs)| outs.clone()).collect(),
         backlinks,
+        BitVec::from_elem(nodes.len(), false),
         10,
     );
 
