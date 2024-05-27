@@ -183,12 +183,8 @@ fn test_parallel_gorder() {
     //     BitVec::from_elem(nodes.len(), false),
     //     10,
     // );
-    let get_edges = |id: &u32|->Vec<u32> {
-        nodes[*id as usize].1.clone()
-    };
-    let get_backlinks = |id: &u32|->Vec<u32> {
-        backlinks[*id as usize].clone()
-    };
+    let get_edges = |id: &u32| -> Vec<u32> { nodes[*id as usize].1.clone() };
+    let get_backlinks = |id: &u32| -> Vec<u32> { backlinks[*id as usize].clone() };
     let ordered_nodes = super::gorder(
         get_edges,
         get_backlinks,
