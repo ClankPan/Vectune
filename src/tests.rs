@@ -148,7 +148,7 @@ fn gen_backlinks(nodes: &Vec<(Point, Vec<u32>)>) -> Vec<Vec<u32>> {
 fn test_parallel_gorder() {
     let builder = Builder::default();
     // let builder = Builder::default().set_seed(10910418820652569485);
-    // let mut rng = SmallRng::seed_from_u64(builder.get_seed());
+    let mut rng = SmallRng::seed_from_u64(builder.get_seed());
 
     println!("seed: {}", builder.get_seed());
 
@@ -190,6 +190,7 @@ fn test_parallel_gorder() {
         get_backlinks,
         BitVec::from_elem(nodes.len(), false),
         10,
+        &mut rng,
     );
 
     println!("ordered_nodes: {:?}\n", ordered_nodes.iter().sorted());

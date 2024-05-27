@@ -2,7 +2,6 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use rustc_hash::FxHashMap;
@@ -16,12 +15,10 @@ struct PackedNodes {
 }
 
 impl PackedNodes {
-    fn new(target_node_bit_vec: BitVec, seed: u64) -> Self {
-
-        let mut rng = SmallRng::seed_from_u64(seed);
+    fn new(target_node_bit_vec: BitVec, rng: &mut SmallRng) -> Self {
         let mut table_of_node_id_to_shuffled_id: Vec<u32> =
             (0..target_node_bit_vec.len() as u32).collect();
-        table_of_node_id_to_shuffled_id.shuffle(&mut rng);
+        table_of_node_id_to_shuffled_id.shuffle(rng);
         let table_of_shuffled_id_to_node_id: Vec<u32> = table_of_node_id_to_shuffled_id
             .iter()
             .enumerate()
@@ -40,7 +37,7 @@ impl PackedNodes {
         Self {
             packed_nodes_table,
             table_of_node_id_to_shuffled_id,
-            table_of_shuffled_id_to_node_id
+            table_of_shuffled_id_to_node_id,
         }
     }
 
@@ -54,6 +51,10 @@ impl PackedNodes {
     fn pack_node(&self, original_index: &u32) -> bool {
         let shuffled_id = &self.table_of_node_id_to_shuffled_id[*original_index as usize];
         pack_node(shuffled_id, &self.packed_nodes_table)
+    }
+
+    fn len(&self) -> usize {
+        self.packed_nodes_table.len()
     }
 }
 
@@ -88,7 +89,8 @@ fn sector_packing<F1, F2>(
     window_size: usize,
     get_edges: &F1,
     get_backlinks: &F2,
-    packed_nodes_table: &Vec<AtomicBool>,
+    // packed_nodes_table: &Vec<AtomicBool>,
+    packed_nodes: &PackedNodes,
 ) -> Vec<u32>
 where
     F1: Fn(&u32) -> Vec<u32>,
@@ -99,7 +101,7 @@ where
     let mut heap = KeyMaxHeap::new();
 
     // Pick a random, unpacked seed node s.
-    sub_array.push(select_random_s(packed_nodes_table).unwrap());
+    sub_array.push(packed_nodes.select_random_unpacked_node().unwrap());
 
     while sub_array_index < window_size {
         // 𝑣𝑒 ← 𝑃 [𝑖];𝑖 ← 𝑖 + 1
@@ -127,7 +129,7 @@ where
             match heap.get_max() {
                 None => {
                     // if H.empty() then Pick a random unpacked seed node 𝑣max and break.
-                    match select_random_s(packed_nodes_table) {
+                    match packed_nodes.select_random_unpacked_node() {
                         Ok(s) => {
                             break s;
                         }
@@ -139,7 +141,7 @@ where
                 }
                 Some((v_max_candidate_index, _)) => {
                     // if not D [𝑣max ] then break
-                    if pack_node(&v_max_candidate_index, packed_nodes_table) {
+                    if packed_nodes.pack_node(&v_max_candidate_index) {
                         break v_max_candidate_index;
                     }
                 }
@@ -160,6 +162,7 @@ pub fn gorder<F1, F2>(
     get_backlinks: F2,
     target_node_bit_vec: BitVec,
     window_size: usize,
+    rng: &mut SmallRng,
 ) -> Vec<u32>
 where
     F1: Fn(&u32) -> Vec<u32> + std::marker::Sync,
@@ -169,23 +172,20 @@ where
     // Select unpacked node randomly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
     // The nodes are shuffled to ensure that start nodes are randomly selected.
-    // let packed_nodes_table: Vec<(AtomicBool, &Vec<u32>)> = nodes
-    //     .iter()
-    //     .map(|n_out| (AtomicBool::new(false), n_out))
+    let packed_nodes = PackedNodes::new(target_node_bit_vec, rng);
+    // let packed_nodes_table: Vec<AtomicBool> = target_node_bit_vec
+    //     .into_iter()
+    //     .map(|bit| AtomicBool::new(bit))
     //     .collect();
-    let packed_nodes_table: Vec<AtomicBool> = target_node_bit_vec
-        .into_iter()
-        .map(|bit| AtomicBool::new(bit))
-        .collect();
 
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
     //   Pick a random, unpacked seed node 𝑠.
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-    let mut reordered: Vec<u32> = (0..(packed_nodes_table.len() / window_size) - 1)
+    let mut reordered: Vec<u32> = (0..(packed_nodes.len() / window_size) - 1)
         .into_par_iter()
         // .into_iter()
         .map(|_start_array_position: usize| {
-            sector_packing(window_size, &get_edges, &get_backlinks, &packed_nodes_table)
+            sector_packing(window_size, &get_edges, &get_backlinks, &packed_nodes)
         })
         .flatten()
         .collect();
@@ -196,7 +196,7 @@ where
         window_size,
         &get_edges,
         &get_backlinks,
-        &packed_nodes_table,
+        &packed_nodes,
     ));
 
     reordered
@@ -235,19 +235,19 @@ impl KeyMaxHeap {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::gorder::PackedNodes;
     use bit_vec::BitVec;
+    use rand::{rngs::SmallRng, SeedableRng};
 
-    const SEED: u64 = 123456;
+    // const SEED: u64 = 123456;
 
     #[test]
     fn testing_packed_node() {
-
         let bitmap = BitVec::from_elem(3, false);
-        let packed_nodes = PackedNodes::new(bitmap, SEED);
+        let mut rng = SmallRng::seed_from_u64(1234);
+        let packed_nodes = PackedNodes::new(bitmap, &mut rng);
         assert!(packed_nodes.pack_node(&0));
         assert!(packed_nodes.pack_node(&2));
         assert_eq!(1, packed_nodes.select_random_unpacked_node().unwrap());
