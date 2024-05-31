@@ -1,4 +1,5 @@
 use rustc_hash::FxHashSet;
+use std::collections::HashSet;
 use std::time::Instant;
 
 use rand::seq::SliceRandom;
@@ -206,7 +207,7 @@ where
             *n_out = new_ids;
         });
 
-        println!("make nodes");
+        // println!("make nodes");
 
         let nodes: Vec<Node<P>> = edges
             .into_iter()
@@ -219,6 +220,33 @@ where
             centroid,
             builder,
         }
+    }
+
+    fn no_backlinks_nodes(ann: &Vamana<P>) {
+        // Backlinks
+        let node_has_backlinks: Vec<u32> = ann
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| {
+                let i = i as u32;
+                node.n_out
+                    .read()
+                    .clone()
+                    .into_iter()
+                    .map(move |out_i| (out_i, i))
+            })
+            .flatten()
+            .sorted()
+            .group_by(|&(key, _)| key)
+            .into_iter()
+            .map(|(key, _group)| {
+                key
+            })
+            .collect();
+            let set: HashSet<u32> = node_has_backlinks.into_iter().collect();
+            let missings: Vec<u32> = (0..ann.nodes.len() as u32).filter(|num| !set.contains(num)).collect();
+            println!("missings, {:?}", missings);
     }
 
     pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
@@ -290,6 +318,8 @@ where
                     }
                 }
             });
+            
+        // Vamana::<P>::no_backlinks_nodes(&ann);
 
         (0..node_len).into_par_iter().for_each(|node_i| {
             let node_p = &ann.nodes[node_i].p;
@@ -311,6 +341,8 @@ where
                 }
             }
         });
+
+        // Vamana::<P>::no_backlinks_nodes(&ann);
 
         #[cfg(feature = "progress-bar")]
         if let Some(bar) = &progress {

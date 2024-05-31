@@ -188,7 +188,7 @@ fn test_parallel_gorder() {
     let ordered_nodes = super::gorder(
         get_edges,
         get_backlinks,
-        BitVec::from_elem(nodes.len(), false),
+        BitVec::from_elem(nodes.len(), true),
         10,
         &mut rng,
     );

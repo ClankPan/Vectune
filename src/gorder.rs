@@ -30,7 +30,7 @@ impl PackedNodes {
             .iter()
             .map(|node_id| {
                 let bit = target_node_bit_vec.get(*node_id as usize).unwrap();
-                AtomicBool::new(bit)
+                AtomicBool::new(!bit)
             })
             .collect();
 
@@ -172,21 +172,16 @@ where
     // Select unpacked node randomly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
     // The nodes are shuffled to ensure that start nodes are randomly selected.
+    let target_node_len = target_node_bit_vec.iter().filter(|&bit| bit).count();
     let packed_nodes = PackedNodes::new(target_node_bit_vec, rng);
-    // let packed_nodes_table: Vec<AtomicBool> = target_node_bit_vec
-    //     .into_iter()
-    //     .map(|bit| AtomicBool::new(bit))
-    //     .collect();
 
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
     //   Pick a random, unpacked seed node 𝑠.
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-    let mut reordered: Vec<u32> = (0..(packed_nodes.len() / window_size) - 1)
+    let mut reordered: Vec<u32> = (0..(target_node_len / window_size) - 1)
         .into_par_iter()
         // .into_iter()
-        .map(|_start_array_position: usize| {
-            sector_packing(window_size, &get_edges, &get_backlinks, &packed_nodes)
-        })
+        .map(|_| sector_packing(window_size, &get_edges, &get_backlinks, &packed_nodes))
         .flatten()
         .collect();
 
@@ -245,7 +240,7 @@ mod tests {
 
     #[test]
     fn testing_packed_node() {
-        let bitmap = BitVec::from_elem(3, false);
+        let bitmap = BitVec::from_elem(3, true);
         let mut rng = SmallRng::seed_from_u64(1234);
         let packed_nodes = PackedNodes::new(bitmap, &mut rng);
         assert!(packed_nodes.pack_node(&0));
