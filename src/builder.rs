@@ -222,7 +222,7 @@ where
         }
     }
 
-    fn no_backlinks_nodes(ann: &Vamana<P>) {
+    fn no_backlinks_nodes(ann: &Vamana<P>) -> Vec<u32> {
         // Backlinks
         let node_has_backlinks: Vec<u32> = ann
             .nodes
@@ -240,13 +240,15 @@ where
             .sorted()
             .group_by(|&(key, _)| key)
             .into_iter()
-            .map(|(key, _group)| {
-                key
-            })
+            .map(|(key, _group)| key)
             .collect();
-            let set: HashSet<u32> = node_has_backlinks.into_iter().collect();
-            let missings: Vec<u32> = (0..ann.nodes.len() as u32).filter(|num| !set.contains(num)).collect();
-            println!("missings, {:?}", missings);
+        let set: HashSet<u32> = node_has_backlinks.into_iter().collect();
+        let missings: Vec<u32> = (0..ann.nodes.len() as u32)
+            .filter(|num| !set.contains(num))
+            .collect();
+        println!("missings, {:?}", missings);
+
+        missings
     }
 
     pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
@@ -318,7 +320,7 @@ where
                     }
                 }
             });
-            
+
         // Vamana::<P>::no_backlinks_nodes(&ann);
 
         (0..node_len).into_par_iter().for_each(|node_i| {
@@ -332,6 +334,33 @@ where
                 .collect();
 
             *ann.nodes[node_i].n_out.write() = ann.prune(&mut n_out_dist);
+
+            #[cfg(feature = "progress-bar")]
+            if let Some(bar) = &progress {
+                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                if value % 1000 == 0 {
+                    bar.set_position(value as u64);
+                }
+            }
+        });
+
+        // Vamana::<P>::no_backlinks_nodes(&ann);
+
+        (0..node_len).into_par_iter().for_each(|node_i| {
+            let node_p = &ann.nodes[node_i].p;
+            let mut n_out_dist = ann.nodes[node_i]
+                .n_out
+                .write()
+                .clone()
+                .into_iter()
+                .map(|out_i| (node_p.distance(&ann.nodes[out_i as usize].p), out_i))
+                .collect();
+
+            sort_list_by_dist_v1(&mut n_out_dist);
+            insert_id(
+                node_i as u32,
+                &mut ann.nodes[n_out_dist[0].1 as usize].n_out.write(),
+            );
 
             #[cfg(feature = "progress-bar")]
             if let Some(bar) = &progress {
@@ -369,6 +398,41 @@ where
                 let dist_pa_pd = pa_point.distance(pd_point);
 
                 self.builder.a * dist_pa_pd > dist_xp_pd
+            })
+        }
+
+        new_n_out
+    }
+
+    pub fn prune_v2(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {
+        let mut new_n_out = vec![];
+
+        while let Some((first, rest)) = candidates.split_first() {
+            let (_, pa) = *first; // pa is p asterisk (p*), which is nearest point to p in this loop
+            new_n_out.push(pa);
+
+            if new_n_out.len() == self.builder.r {
+                break;
+            }
+            *candidates = rest.to_vec();
+
+            // if α · d(p*, p') <= d(p, p') then remove p' from v
+            candidates.retain(|&(dist_xp_pd, pd)| {
+                let pa_point = &self.nodes[pa as usize].p;
+                let pd_point = &self.nodes[pd as usize].p;
+                let dist_pa_pd = pa_point.distance(pd_point);
+
+                if self.builder.a * dist_pa_pd > dist_xp_pd {
+                    true
+                } else {
+                    if self.nodes[pa as usize].n_out.read().contains(&pd) {
+                        false
+                    } else {
+                        true
+                    }
+                }
+
+                // 刈り取ろうとしているedgeが、そのout-nodeにとって自分が最近傍なら、削除しないルールを追加する。
             })
         }
 

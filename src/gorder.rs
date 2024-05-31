@@ -53,9 +53,6 @@ impl PackedNodes {
         pack_node(shuffled_id, &self.packed_nodes_table)
     }
 
-    fn len(&self) -> usize {
-        self.packed_nodes_table.len()
-    }
 }
 
 fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<AtomicBool>) -> bool {
@@ -91,6 +88,7 @@ fn sector_packing<F1, F2>(
     get_backlinks: &F2,
     // packed_nodes_table: &Vec<AtomicBool>,
     packed_nodes: &PackedNodes,
+    start_node: u32,
 ) -> Vec<u32>
 where
     F1: Fn(&u32) -> Vec<u32>,
@@ -101,7 +99,7 @@ where
     let mut heap = KeyMaxHeap::new();
 
     // Pick a random, unpacked seed node s.
-    sub_array.push(packed_nodes.select_random_unpacked_node().unwrap());
+    sub_array.push(start_node);
 
     while sub_array_index < window_size {
         // 𝑣𝑒 ← 𝑃 [𝑖];𝑖 ← 𝑖 + 1
@@ -178,21 +176,22 @@ where
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
     //   Pick a random, unpacked seed node 𝑠.
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-    let mut reordered: Vec<u32> = (0..(target_node_len / window_size) - 1)
+    let reordered: Vec<u32> = (0..(target_node_len + window_size - 1) / window_size)
+        .into_iter()
+        .map(|_| packed_nodes.select_random_unpacked_node().unwrap())
+        .collect::<Vec<_>>()
         .into_par_iter()
-        // .into_iter()
-        .map(|_| sector_packing(window_size, &get_edges, &get_backlinks, &packed_nodes))
+        .map(|start_node| {
+            sector_packing(
+                window_size,
+                &get_edges,
+                &get_backlinks,
+                &packed_nodes,
+                start_node,
+            )
+        })
         .flatten()
         .collect();
-
-    // Pick a random, unpacked seed node 𝑠.
-    // SectorPack(𝑃 [ ⌊ |X|/𝑤⌋ ∗ 𝑤], D, 𝑠, 𝑤,)
-    reordered.extend(sector_packing(
-        window_size,
-        &get_edges,
-        &get_backlinks,
-        &packed_nodes,
-    ));
 
     reordered
 }
