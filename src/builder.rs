@@ -222,7 +222,7 @@ where
         }
     }
 
-    fn no_backlinks_nodes(ann: &Vamana<P>) -> Vec<u32> {
+    fn _no_backlinks_nodes(ann: &Vamana<P>) -> Vec<u32> {
         // Backlinks
         let node_has_backlinks: Vec<u32> = ann
             .nodes
@@ -401,42 +401,7 @@ where
             })
         }
 
-        new_n_out
-    }
-
-    pub fn prune_v2(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {
-        let mut new_n_out = vec![];
-
-        while let Some((first, rest)) = candidates.split_first() {
-            let (_, pa) = *first; // pa is p asterisk (p*), which is nearest point to p in this loop
-            new_n_out.push(pa);
-
-            if new_n_out.len() == self.builder.r {
-                break;
-            }
-            *candidates = rest.to_vec();
-
-            // if α · d(p*, p') <= d(p, p') then remove p' from v
-            candidates.retain(|&(dist_xp_pd, pd)| {
-                let pa_point = &self.nodes[pa as usize].p;
-                let pd_point = &self.nodes[pd as usize].p;
-                let dist_pa_pd = pa_point.distance(pd_point);
-
-                if self.builder.a * dist_pa_pd > dist_xp_pd {
-                    true
-                } else {
-                    if self.nodes[pa as usize].n_out.read().contains(&pd) {
-                        false
-                    } else {
-                        true
-                    }
-                }
-
-                // 刈り取ろうとしているedgeが、そのout-nodeにとって自分が最近傍なら、削除しないルールを追加する。
-            })
-        }
-
-        new_n_out
+        new_n_out.into_iter().sorted().collect()
     }
 
     pub fn greedy_search(
