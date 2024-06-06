@@ -323,15 +323,19 @@ where
 
         // Vamana::<P>::no_backlinks_nodes(&ann);
 
-        (0..node_len).into_par_iter().for_each(|node_i| {
+        let nns: Vec<(f32, u32)> = (0..node_len).into_par_iter().map(|node_i| {
             let node_p = &ann.nodes[node_i].p;
-            let mut n_out_dist = ann.nodes[node_i]
+            let mut n_out_dist: Vec<(f32, u32)> = ann.nodes[node_i]
                 .n_out
                 .write()
                 .clone()
                 .into_iter()
                 .map(|out_i| (node_p.distance(&ann.nodes[out_i as usize].p), out_i))
                 .collect();
+
+            sort_list_by_dist_v1(&mut n_out_dist);
+
+            let nearest_neighbor = n_out_dist[0];
 
             *ann.nodes[node_i].n_out.write() = ann.prune(&mut n_out_dist);
 
@@ -342,24 +346,18 @@ where
                     bar.set_position(value as u64);
                 }
             }
-        });
+
+            nearest_neighbor
+        }).collect();
 
         // Vamana::<P>::no_backlinks_nodes(&ann);
 
         (0..node_len).into_par_iter().for_each(|node_i| {
-            let node_p = &ann.nodes[node_i].p;
-            let mut n_out_dist = ann.nodes[node_i]
-                .n_out
-                .write()
-                .clone()
-                .into_iter()
-                .map(|out_i| (node_p.distance(&ann.nodes[out_i as usize].p), out_i))
-                .collect();
+            let nn = nns[node_i];
 
-            sort_list_by_dist_v1(&mut n_out_dist);
             insert_id(
                 node_i as u32,
-                &mut ann.nodes[n_out_dist[0].1 as usize].n_out.write(),
+                &mut ann.nodes[nn.1 as usize].n_out.write(),
             );
 
             #[cfg(feature = "progress-bar")]
@@ -371,7 +369,7 @@ where
             }
         });
 
-        // Vamana::<P>::no_backlinks_nodes(&ann);
+        // Vamana::<P>::_no_backlinks_nodes(&ann);
 
         #[cfg(feature = "progress-bar")]
         if let Some(bar) = &progress {
@@ -402,6 +400,7 @@ where
         }
 
         new_n_out.into_iter().sorted().collect()
+        // new_n_out
     }
 
     pub fn greedy_search(
