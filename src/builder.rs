@@ -37,11 +37,13 @@ pub struct Builder {
     progress: Option<ProgressBar>,
 }
 
+pub const DEFAULT_R: usize = 70;
+
 impl Default for Builder {
     fn default() -> Self {
         Self {
             a: 2.0,
-            r: 70,
+            r: DEFAULT_R,
             l: 125,
             seed: rand::random(),
             #[cfg(feature = "progress-bar")]
@@ -96,7 +98,12 @@ impl Builder {
             .map(|node| {
                 (
                     node.p,
-                    node.n_out.into_inner().into_iter().sorted().collect(),
+                    node.n_out
+                        .into_inner()
+                        .into_iter()
+                        .map(|(_, i)| i)
+                        .sorted()
+                        .collect(),
                 )
             })
             .collect();
@@ -113,8 +120,9 @@ impl Builder {
 }
 
 pub struct Node<P> {
-    n_out: RwLock<Vec<u32>>,
+    n_out: RwLock<Vec<(f32, u32)>>,
     p: P,
+    nn: RwLock<u32>,
 }
 
 pub struct Vamana<P> {
@@ -177,11 +185,12 @@ where
         /* Get random connected graph */
 
         // edge (in, out)
-        let edges: Vec<(RwLock<Vec<u32>>, RwLock<Vec<u32>>)> = (0..points_len)
+        let edges: Vec<(RwLock<Vec<u32>>, RwLock<Vec<u32>>, RwLock<u32>)> = (0..points_len)
             .map(|_| {
                 (
                     RwLock::new(Vec::with_capacity(builder.l)),
                     RwLock::new(Vec::with_capacity(builder.l)),
+                    RwLock::new(0),
                 )
             })
             .collect();
@@ -211,8 +220,23 @@ where
 
         let nodes: Vec<Node<P>> = edges
             .into_iter()
-            .zip(points)
-            .map(|((_n_in, n_out), p)| Node { n_out, p })
+            .zip(points.clone())
+            .map(|((_n_in, n_out, nn), p)| {
+                let n_out: Vec<(f32, u32)> = n_out
+                    .read()
+                    .clone()
+                    .into_iter()
+                    .map(|edge_i| {
+                        let dist = points[edge_i as usize].distance(&p);
+                        (dist, edge_i)
+                    })
+                    .collect();
+                Node {
+                    n_out: RwLock::new(n_out),
+                    p,
+                    nn,
+                }
+            })
             .collect();
 
         Self {
@@ -234,7 +258,7 @@ where
                     .read()
                     .clone()
                     .into_iter()
-                    .map(move |out_i| (out_i, i))
+                    .map(move |(_, out_i)| (out_i, i))
             })
             .flatten()
             .sorted()
@@ -246,7 +270,7 @@ where
         let missings: Vec<u32> = (0..ann.nodes.len() as u32)
             .filter(|num| !set.contains(num))
             .collect();
-        println!("missings, {:?}", missings);
+        // println!("missings, {:?}", missings);
 
         missings
     }
@@ -258,7 +282,7 @@ where
         let progress_done = AtomicUsize::new(0);
         #[cfg(feature = "progress-bar")]
         if let Some(bar) = &progress {
-            bar.set_length((ann.nodes.len() * 2) as u64);
+            bar.set_length((ann.nodes.len() * 4) as u64);
             bar.set_message("Build index (preparation)");
         }
 
@@ -271,94 +295,110 @@ where
             .into_par_iter()
             .enumerate()
             .for_each(|(_count, i)| {
-                // if count % 10000 == 0 {
-                //     println!("id : {}\t/{}", count, ann.nodes.len());
-                // }
-
                 // let [L; V] ← GreedySearch(s, xσ(i), 1, L)
                 let (_, visited) = ann.greedy_search(&ann.nodes[i].p, 1, ann.builder.l);
 
                 // V ← (V ∪ Nout(p)) \ {p}
                 let prev_n_out = ann.nodes[i].n_out.read().clone();
-                let mut candidates = visited;
-                for out_i in &prev_n_out {
-                    if !is_contained_in(out_i, &candidates) {
-                        // let dist = self.node_distance(xp, out_i);
-                        let dist = ann.nodes[i].p.distance(&ann.nodes[*out_i as usize].p);
-                        insert_dist((dist, *out_i), &mut candidates)
-                    }
+                let mut candidates: Vec<(f32, u32)> = visited;
+                for (out_i_dist, out_i) in &prev_n_out {
+                    insert_dist((*out_i_dist, *out_i), &mut candidates)
                 }
 
                 // run RobustPrune(σ(i), V, α, R) to update out-neighbors of σ(i)
-                let mut new_n_out = ann.prune(&mut candidates);
-                let new_added_ids = diff_ids(&ann.nodes[i].n_out.read(), &prev_n_out);
-                for out_i in new_added_ids {
-                    insert_id(out_i, &mut new_n_out);
-                }
-
+                let mut new_n_out = ann.prune_v2(&mut candidates, vec![]);
                 {
                     let mut current_n_out = ann.nodes[i].n_out.write();
-                    current_n_out.clone_from(&new_n_out);
-                } // unlock the write lock
+                    let new_added_ids = diff_ids(
+                        &current_n_out.iter().map(|(_, i)| *i).sorted().collect(),
+                        &prev_n_out.iter().map(|(_, i)| *i).sorted().collect(),
+                    );
+                    for out_i in new_added_ids {
+                        let n = current_n_out
+                            .iter()
+                            .find(|(_, i)| *i == out_i)
+                            .unwrap()
+                            .clone();
+                        insert_dist(n, &mut new_n_out);
+                    }
+                    sort_list_by_dist_v1(&mut new_n_out);
+                    *current_n_out = new_n_out.clone();
+                }
 
                 // for all points j in Nout(σ(i)) do
-                for j in new_n_out {
-                    if ann.nodes[j as usize].n_out.read().contains(&(i as u32)) {
+                for (j_dist, j) in new_n_out {
+                    if is_contained_in(&(i as u32), &ann.nodes[j as usize].n_out.read()) {
                         continue;
                     } else {
                         // Todo : refactor, self.make_edge　or union. above ann.nodes[j].n_out.contains(&i) not necessary if use union
-                        insert_id(i as u32, &mut ann.nodes[j as usize].n_out.write());
-                        // insert_id(j, &mut ann.nodes[i].n_in);
+                        let mut current_n_out = ann.nodes[j as usize].n_out.write();
+                        insert_dist((j_dist, i as u32), &mut current_n_out);
+                        sort_list_by_dist_v1(&mut current_n_out);
                     }
                 }
 
                 #[cfg(feature = "progress-bar")]
                 if let Some(bar) = &progress {
-                    let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                    let value = progress_done.fetch_add(2, atomic::Ordering::Relaxed);
                     if value % 1000 == 0 {
                         bar.set_position(value as u64);
                     }
                 }
             });
 
-        // Vamana::<P>::no_backlinks_nodes(&ann);
+        // Add node's nearest neigbor
+        loop {
+            let is_stable = (0..node_len)
+                .into_par_iter()
+                .map(|node_i| {
+                    let nn = ann.nodes[node_i].n_out.read()[0];
+                    let is_same = ann.nodes[node_i].nn.read().clone() == nn.1;
+                    *ann.nodes[node_i].nn.write() = nn.1;
 
-        let nns: Vec<(f32, u32)> = (0..node_len).into_par_iter().map(|node_i| {
-            let node_p = &ann.nodes[node_i].p;
-            let mut n_out_dist: Vec<(f32, u32)> = ann.nodes[node_i]
-                .n_out
-                .write()
-                .clone()
-                .into_iter()
-                .map(|out_i| (node_p.distance(&ann.nodes[out_i as usize].p), out_i))
-                .collect();
+                    // insert_dist((nn.0, node_i as u32), &mut ann.nodes[nn.1 as usize].n_out.write());
 
-            sort_list_by_dist_v1(&mut n_out_dist);
+                    let mut current_n_out = ann.nodes[nn.1 as usize].n_out.write();
+                    insert_dist((nn.0, node_i as u32), &mut current_n_out);
+                    sort_list_by_dist_v1(&mut current_n_out);
 
-            let nearest_neighbor = n_out_dist[0];
+                    #[cfg(feature = "progress-bar")]
+                    if let Some(bar) = &progress {
+                        let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                        if value % 1000 == 0 {
+                            bar.set_position(value as u64);
+                        }
+                    }
 
-            *ann.nodes[node_i].n_out.write() = ann.prune(&mut n_out_dist);
+                    is_same
+                })
+                .reduce_with(|acc, x| acc & x)
+                .unwrap();
 
-            #[cfg(feature = "progress-bar")]
-            if let Some(bar) = &progress {
-                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
-                if value % 1000 == 0 {
-                    bar.set_position(value as u64);
-                }
+            if is_stable {
+                break;
             }
-
-            nearest_neighbor
-        }).collect();
+        }
 
         // Vamana::<P>::no_backlinks_nodes(&ann);
 
         (0..node_len).into_par_iter().for_each(|node_i| {
-            let nn = nns[node_i];
+            let mut n_out = ann.nodes[node_i].n_out.write();
 
-            insert_id(
-                node_i as u32,
-                &mut ann.nodes[nn.1 as usize].n_out.write(),
-            );
+            let original_n_out_len = n_out.len();
+
+            // sort_list_by_dist_v1(&mut n_out_dist);
+            let mut candidates = n_out.clone();
+            *n_out = ann.prune_v2(&mut candidates, vec![]);
+
+            // WIP
+            if n_out.len() > ann.builder.r {
+                println!(
+                    "node_i: {}: {}, oroginal_len {}",
+                    node_i,
+                    n_out.len(),
+                    original_n_out_len
+                );
+            }
 
             #[cfg(feature = "progress-bar")]
             if let Some(bar) = &progress {
@@ -369,13 +409,77 @@ where
             }
         });
 
-        // Vamana::<P>::_no_backlinks_nodes(&ann);
+        /*
+        no_backlinks_nodesに対して、greedy_searchをかけて、visitedを出す。
+        近い順からedgeが空いてるノードを探して、そこに入れる。
+        もし、最後まで空きがなければ、 空きを作るか、空きが見つかるまで、searchを繰り返すか？
+
+        visitedの中で、空きがあればそこに入れる。
+        visitedのcandidate_iのedgeと自分のedgeの共有を探す。
+        自分が持っているやがあったとき、相手のそれと、自分のidを入れ替える。
+
+        それでも見つからない時は、
+
+        */
+
+        let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
+        println!("1. missings len, {}", missings.len());
+
+        missings.into_par_iter().for_each(|node_i| {
+            *ann.nodes[node_i as usize].n_out.write() = vec![];
+        });
+
+        let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
+        println!("2. missings len, {}", missings.len());
+
+        missings.clone().into_par_iter().for_each(|node_i| {
+            let (_, visited) = ann.greedy_search(&ann.nodes[node_i as usize].p, 1, ann.builder.l);
+            let n_out_dists = ann.prune_v2(&mut visited.clone(), vec![]);
+            *ann.nodes[node_i as usize].n_out.write() = n_out_dists;
+        });
+
+        missings.into_par_iter().for_each(|node_i| {
+            let n_out = ann.nodes[node_i as usize].n_out.write();
+            let nn = n_out[0].1 as usize;
+            let a_p = &ann.nodes[node_i as usize].p;
+
+            let nn_n_out =  ann.nodes[nn].n_out.write();
+
+            let mut swap = None; // もしrobust-swapに当てはまるものがなければ、一番最後のやつを使う。
+
+            for (_, e_i) in nn_n_out.iter() {
+                let e_p = &ann.nodes[*e_i as usize].p;
+                let dist_e_a = a_p.distance(e_p);
+
+                let found = nn_n_out.iter().all(|(_, c_i)| {
+                    if *e_i == *c_i {return true};
+                    let dist_e_c = e_p.distance(&ann.nodes[*c_i as usize].p);
+                    dist_e_c > dist_e_a
+                });
+
+                if found {
+                    swap = Some(*e_i);
+                    break
+                }
+            }
+
+            if swap.is_none() {
+                swap = Some(nn_n_out.last().unwrap().1);
+                println!("not found");
+            }
+        });
+        
+
+        let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
+        println!("3. missings len, {}", missings.len());
 
         #[cfg(feature = "progress-bar")]
         if let Some(bar) = &progress {
             bar.finish();
         }
     }
+
+    // fn swap(&)
 
     pub fn prune(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {
         let mut new_n_out = vec![];
@@ -403,6 +507,38 @@ where
         // new_n_out
     }
 
+    pub fn prune_v2(
+        &self,
+        candidates: &mut Vec<(f32, u32)>,
+        filter: Vec<(f32, u32)>,
+    ) -> Vec<(f32, u32)> {
+        let mut new_n_out = filter;
+        sort_list_by_dist_v1(&mut new_n_out);
+
+        while let Some((first, rest)) = candidates.split_first() {
+            let (pa_dist, pa) = *first; // pa is p asterisk (p*), which is nearest point to p in this loop
+
+            if new_n_out.len() == self.builder.r {
+                break;
+            }
+
+            insert_dist((pa_dist, pa), &mut new_n_out);
+
+            *candidates = rest.to_vec();
+
+            // if α · d(p*, p') <= d(p, p') then remove p' from v
+            candidates.retain(|&(dist_xp_pd, pd)| {
+                let pa_point = &self.nodes[pa as usize].p;
+                let pd_point = &self.nodes[pd as usize].p;
+                let dist_pa_pd = pa_point.distance(pd_point);
+
+                self.builder.a * dist_pa_pd > dist_xp_pd
+            })
+        }
+
+        new_n_out
+    }
+
     pub fn greedy_search(
         &self,
         query_point: &P,
@@ -425,7 +561,7 @@ where
         while let Some((_, nearest_i, _)) = working {
             let nearest_n_out = self.nodes[nearest_i as usize].n_out.read().clone();
             let mut nouts: Vec<(f32, u32, bool)> = Vec::with_capacity(nearest_n_out.len());
-            for out_i in nearest_n_out {
+            for (_, out_i) in nearest_n_out {
                 if !touched.contains(&out_i) {
                     touched.insert(out_i);
                     nouts.push((

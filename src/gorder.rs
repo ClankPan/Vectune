@@ -52,7 +52,6 @@ impl PackedNodes {
         let shuffled_id = &self.table_of_node_id_to_shuffled_id[*original_index as usize];
         pack_node(shuffled_id, &self.packed_nodes_table)
     }
-
 }
 
 fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<AtomicBool>) -> bool {
