@@ -19,7 +19,7 @@ struct PackedNodes {
     table_of_node_id_to_shuffled_id: Vec<u32>,
     table_of_shuffled_id_to_node_id: Vec<u32>,
     start_ids: Vec<u32>,
-    num_sector: usize,
+    _num_sector: usize,
 }
 
 impl PackedNodes {
@@ -60,7 +60,7 @@ impl PackedNodes {
             table_of_node_id_to_shuffled_id,
             table_of_shuffled_id_to_node_id,
             start_ids,
-            num_sector
+            _num_sector: num_sector
         }
     }
 
@@ -81,8 +81,6 @@ impl PackedNodes {
 fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<Mutex<bool>>) -> bool {
     let packed_flag = &packed_nodes_table[*shuffled_index as usize];
 
-    // let _ = test_sieve_of_eratosthenes(100000);
-
     match packed_flag.try_lock() {
         Some(mut is_packed) => {
             if *is_packed {
@@ -98,21 +96,6 @@ fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<Mutex<bool>>) -> boo
     }
 }
 
-fn test_sieve_of_eratosthenes(limit: usize) -> Vec<usize> {
-    let mut primes = vec![true; limit + 1];
-    let mut result = Vec::new();
-    for i in 2..=limit {
-        if primes[i] {
-            result.push(i);
-            let mut multiple = i * i;
-            while multiple <= limit {
-                primes[multiple] = false;
-                multiple += i;
-            }
-        }
-    }
-    result
-}
 
 // fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<Mutex<bool>>) -> bool {
 //     let packed_flag = &packed_nodes_table[*shuffled_index as usize];
@@ -307,7 +290,7 @@ where
     }
 
     let reordered: Vec<Vec<u32>> = start_ids
-        .into_iter()
+        .into_par_iter()
         .map(|start_node| {
             let res = sector_packing(
                 window_size,

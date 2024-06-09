@@ -16,7 +16,7 @@ use indicatif::ProgressBar;
 #[cfg(feature = "progress-bar")]
 use std::sync::atomic::{self, AtomicUsize};
 
-use crate::{builder, utils::*};
+use crate::utils::*;
 use crate::PointInterface;
 
 /// Builder is a structure and implementation for creating a Vamana graph.
@@ -89,7 +89,7 @@ impl Builder {
     ///
     /// Takes a `Vec<P>` as an argument and returns a `Vec<(P, Vec<usize>)>` with edges added.
     ///
-    pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<u32>)>, u32) {
+    pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<u32>)>, u32, Vec<Vec<u32>>) {
         let ann = Vamana::new(points, self);
 
         let nodes = ann
@@ -109,7 +109,7 @@ impl Builder {
             .collect();
         let s = ann.centroid;
 
-        (nodes, s)
+        (nodes, s, ann.backlinks)
     }
 
     #[cfg(feature = "progress-bar")]
@@ -129,6 +129,7 @@ pub struct Vamana<P> {
     pub nodes: Vec<Node<P>>,
     pub centroid: u32,
     pub builder: Builder,
+    pub backlinks: Vec<Vec<u32>>
 }
 
 impl<P> Vamana<P>
@@ -159,6 +160,7 @@ where
                 nodes: Vec::new(),
                 centroid: u32::MAX,
                 builder,
+                backlinks: Vec::new(),
             };
         }
 
@@ -243,12 +245,42 @@ where
             nodes,
             centroid,
             builder,
+            backlinks: Vec::new(),
         }
     }
 
-    fn _no_backlinks_nodes(ann: &Vamana<P>) -> Vec<u32> {
+    // fn _no_backlinks_nodes(ann: &Vamana<P>) -> Vec<u32> {
+    //     // Backlinks
+    //     let node_has_backlinks: Vec<u32> = ann
+    //         .nodes
+    //         .iter()
+    //         .enumerate()
+    //         .map(|(i, node)| {
+    //             let i = i as u32;
+    //             node.n_out
+    //                 .read()
+    //                 .clone()
+    //                 .into_iter()
+    //                 .map(move |(_, out_i)| (out_i, i))
+    //         })
+    //         .flatten()
+    //         .sorted()
+    //         .group_by(|&(key, _)| key)
+    //         .into_iter()
+    //         .map(|(key, _group)| key)
+    //         .collect();
+    //     let set: HashSet<u32> = node_has_backlinks.into_iter().collect();
+    //     let missings: Vec<u32> = (0..ann.nodes.len() as u32)
+    //         .filter(|num| !set.contains(num))
+    //         .collect();
+    //     // println!("missings, {:?}", missings);
+
+    //     missings
+    // }
+
+    fn get_backlinks(ann: &Vamana<P>) -> (Vec<u32>, Vec<Vec<u32>>) {
         // Backlinks
-        let node_has_backlinks: Vec<u32> = ann
+        let node_has_backlinks: Vec<(u32, Vec<u32>)> = ann
             .nodes
             .iter()
             .enumerate()
@@ -264,15 +296,15 @@ where
             .sorted()
             .group_by(|&(key, _)| key)
             .into_iter()
-            .map(|(key, _group)| key)
+            .map(|(key, group)| (key, group.map(|(_, edge)| edge).collect()))
             .collect();
-        let set: HashSet<u32> = node_has_backlinks.into_iter().collect();
+        let set: HashSet<u32> = node_has_backlinks.iter().map(|(key, _)| *key).collect();
         let missings: Vec<u32> = (0..ann.nodes.len() as u32)
             .filter(|num| !set.contains(num))
             .collect();
         // println!("missings, {:?}", missings);
 
-        missings
+        (missings,  node_has_backlinks.into_iter().map(|(_, edges)| edges).collect())
     }
 
     pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
@@ -409,29 +441,16 @@ where
             }
         });
 
-        /*
-        no_backlinks_nodesに対して、greedy_searchをかけて、visitedを出す。
-        近い順からedgeが空いてるノードを探して、そこに入れる。
-        もし、最後まで空きがなければ、 空きを作るか、空きが見つかるまで、searchを繰り返すか？
-
-        visitedの中で、空きがあればそこに入れる。
-        visitedのcandidate_iのedgeと自分のedgeの共有を探す。
-        自分が持っているやがあったとき、相手のそれと、自分のidを入れ替える。
-
-        それでも見つからない時は、
-
-        */
-
         // 辿り着けないノードのedgeを全てリセットする。
         // そのノードへの唯一のルートの中で、missingがあると、そのノードも間接的にmissingになる。
-        let mut current_missing = Vamana::<P>::_no_backlinks_nodes(&ann);
+        let (mut current_missing, _) = Vamana::<P>::get_backlinks(&ann);
         let missings = loop {
             current_missing.clone().into_par_iter().for_each(|missing_i| {
                 *ann.nodes[missing_i as usize].n_out.write() = vec![];
             });
             println!("missings len, {}", current_missing.len());
     
-            let missings_2 = Vamana::<P>::_no_backlinks_nodes(&ann);
+            let (missings_2, _) = Vamana::<P>::get_backlinks(&ann);
 
             if current_missing.len() == missings_2.len() {
                 break missings_2;
@@ -439,13 +458,16 @@ where
             current_missing = missings_2;
         };
 
+        // 新しいedgeを与える。
         missings.clone().into_par_iter().for_each(|missing_i| {
             let (_, mut visited) = ann.greedy_search(&ann.nodes[missing_i as usize].p, 1, ann.builder.l);
             let n_out_dists = ann.prune_v2(&mut visited, vec![]);
             *ann.nodes[missing_i as usize].n_out.write() = n_out_dists;
         });
 
-        let missings_2 = missings.clone();
+        // Nearest-Nodeのedgeの一番最後のedgeと自分を交換する。
+        // そのNNを交換したnodeで書き換える。
+        // グラフは、missingsがなくても検索が成り立っているので、NNを入れ替えても問題ない。
         missings.into_par_iter().for_each(|missing_i| {
             let mut n_out = ann.nodes[missing_i as usize].n_out.write();
             let (nn_dist, nn_i) = n_out[0];
@@ -460,13 +482,6 @@ where
             }
 
             insert_dist((nn_dist, missing_i), &mut nn_n_out);
-            // nn_n_out.push((nn_dist, missing_i));
-
-
-            // if nn_n_out.iter().find(|(_, i)| *i == missing_i).is_none() {
-            //     println!("find(|(_, i)| *i == node_i).is_none()");
-            // }
-
         });
 
         /*
@@ -476,8 +491,10 @@ where
         */
         
 
-        let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
+        let (missings, backlinks) = Vamana::<P>::get_backlinks(&ann);
         println!("3. missings len, {}", missings.len());
+
+        ann.backlinks = backlinks;
 
 
         #[cfg(feature = "progress-bar")]
@@ -485,8 +502,6 @@ where
             bar.finish();
         }
     }
-
-    // fn swap(&)
 
     pub fn prune(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {
         let mut new_n_out = vec![];

@@ -162,7 +162,7 @@ fn test_parallel_gorder() {
         })
         .collect();
 
-    let (nodes, centroid) = builder.build(points);
+    let (nodes, centroid, _) = builder.build(points);
 
     // for (node_i, node) in nodes.iter().enumerate() {
     //     println!("id: {}, {:?}", node_i, node.1);
@@ -185,13 +185,13 @@ fn test_parallel_gorder() {
     // );
     let get_edges = |id: &u32| -> Vec<u32> { nodes[*id as usize].1.clone() };
     let get_backlinks = |id: &u32| -> Vec<u32> { backlinks[*id as usize].clone() };
-    let ordered_nodes = super::gorder(
+    let ordered_nodes: Vec<u32> = super::gorder(
         get_edges,
         get_backlinks,
         BitVec::from_elem(nodes.len(), true),
         10,
         &mut rng,
-    );
+    ).into_iter().flatten().collect();
 
     println!("ordered_nodes: {:?}\n", ordered_nodes.iter().sorted());
 
@@ -318,7 +318,7 @@ fn search_api() {
         })
         .collect();
 
-    let (nodes, centroid) = builder.build(points);
+    let (nodes, centroid, _) = builder.build(points);
 
     let mut graph = Graph {
         nodes,
@@ -355,7 +355,7 @@ fn test_greedy_search_with_cemetery() {
         })
         .collect();
 
-    let (nodes, centroid) = builder.build(points);
+    let (nodes, centroid, _) = builder.build(points);
 
     let mut graph = Graph {
         nodes,
@@ -409,7 +409,7 @@ fn test_greedy_search_with_removing_graves() {
         })
         .collect();
 
-    let (nodes, centroid) = builder.build(points);
+    let (nodes, centroid, _) = builder.build(points);
 
     for (node_i, node) in nodes.iter().enumerate() {
         println!("id: {}, {:?}", node_i, node.1);
@@ -494,7 +494,7 @@ fn test_insert_new_point() {
         })
         .collect();
 
-    let (nodes, centroid) = builder.build(points);
+    let (nodes, centroid, _) = builder.build(points);
 
     for (node_i, node) in nodes.iter().enumerate() {
         println!("id: {}, {:?}", node_i, node.1);
