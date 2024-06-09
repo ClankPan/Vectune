@@ -16,7 +16,7 @@ use indicatif::ProgressBar;
 #[cfg(feature = "progress-bar")]
 use std::sync::atomic::{self, AtomicUsize};
 
-use crate::utils::*;
+use crate::{builder, utils::*};
 use crate::PointInterface;
 
 /// Builder is a structure and implementation for creating a Vamana graph.
@@ -102,7 +102,7 @@ impl Builder {
                         .into_inner()
                         .into_iter()
                         .map(|(_, i)| i)
-                        .sorted()
+                        .sorted()  // Note: insert_id() requires a sorted array 
                         .collect(),
                 )
             })
@@ -422,56 +422,63 @@ where
 
         */
 
-        let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
-        println!("1. missings len, {}", missings.len());
+        // 辿り着けないノードのedgeを全てリセットする。
+        // そのノードへの唯一のルートの中で、missingがあると、そのノードも間接的にmissingになる。
+        let mut current_missing = Vamana::<P>::_no_backlinks_nodes(&ann);
+        let missings = loop {
+            current_missing.clone().into_par_iter().for_each(|missing_i| {
+                *ann.nodes[missing_i as usize].n_out.write() = vec![];
+            });
+            println!("missings len, {}", current_missing.len());
+    
+            let missings_2 = Vamana::<P>::_no_backlinks_nodes(&ann);
 
-        missings.into_par_iter().for_each(|node_i| {
-            *ann.nodes[node_i as usize].n_out.write() = vec![];
+            if current_missing.len() == missings_2.len() {
+                break missings_2;
+            }
+            current_missing = missings_2;
+        };
+
+        missings.clone().into_par_iter().for_each(|missing_i| {
+            let (_, mut visited) = ann.greedy_search(&ann.nodes[missing_i as usize].p, 1, ann.builder.l);
+            let n_out_dists = ann.prune_v2(&mut visited, vec![]);
+            *ann.nodes[missing_i as usize].n_out.write() = n_out_dists;
         });
 
-        let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
-        println!("2. missings len, {}", missings.len());
+        let missings_2 = missings.clone();
+        missings.into_par_iter().for_each(|missing_i| {
+            let mut n_out = ann.nodes[missing_i as usize].n_out.write();
+            let (nn_dist, nn_i) = n_out[0];
+            let mut nn_n_out =  ann.nodes[nn_i as usize].n_out.write();
 
-        missings.clone().into_par_iter().for_each(|node_i| {
-            let (_, visited) = ann.greedy_search(&ann.nodes[node_i as usize].p, 1, ann.builder.l);
-            let n_out_dists = ann.prune_v2(&mut visited.clone(), vec![]);
-            *ann.nodes[node_i as usize].n_out.write() = n_out_dists;
-        });
+            let a = &ann.nodes[missing_i as usize].p;
 
-        missings.into_par_iter().for_each(|node_i| {
-            let n_out = ann.nodes[node_i as usize].n_out.write();
-            let nn = n_out[0].1 as usize;
-            let a_p = &ann.nodes[node_i as usize].p;
-
-            let nn_n_out =  ann.nodes[nn].n_out.write();
-
-            let mut swap = None; // もしrobust-swapに当てはまるものがなければ、一番最後のやつを使う。
-
-            for (_, e_i) in nn_n_out.iter() {
-                let e_p = &ann.nodes[*e_i as usize].p;
-                let dist_e_a = a_p.distance(e_p);
-
-                let found = nn_n_out.iter().all(|(_, c_i)| {
-                    if *e_i == *c_i {return true};
-                    let dist_e_c = e_p.distance(&ann.nodes[*c_i as usize].p);
-                    dist_e_c > dist_e_a
-                });
-
-                if found {
-                    swap = Some(*e_i);
-                    break
-                }
+            if nn_n_out.len() == ann.builder.r {
+                let (_, poped_i) = nn_n_out.pop().unwrap();
+                let dist_a_poped_i = a.distance(&ann.nodes[poped_i as usize].p);
+                n_out[0] = (dist_a_poped_i, poped_i);
             }
 
-            if swap.is_none() {
-                swap = Some(nn_n_out.last().unwrap().1);
-                println!("not found");
-            }
+            insert_dist((nn_dist, missing_i), &mut nn_n_out);
+            // nn_n_out.push((nn_dist, missing_i));
+
+
+            // if nn_n_out.iter().find(|(_, i)| *i == missing_i).is_none() {
+            //     println!("find(|(_, i)| *i == node_i).is_none()");
+            // }
+
         });
+
+        /*
+        メモ：
+         missingにvec![]を入れると、それが参照していたやつもmissingになる。
+         それらに新しいedgeを入れると、二段階目のやつからmissingが生まれる。
+        */
         
 
         let missings = Vamana::<P>::_no_backlinks_nodes(&ann);
         println!("3. missings len, {}", missings.len());
+
 
         #[cfg(feature = "progress-bar")]
         if let Some(bar) = &progress {
