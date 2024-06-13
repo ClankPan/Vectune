@@ -16,10 +16,13 @@ use std::sync::atomic::{self, AtomicUsize};
 
 struct PackedNodes {
     packed_nodes_table: Vec<Mutex<bool>>,
+    // packed_nodes_table: Vec<AtomicBool>,
     table_of_node_id_to_shuffled_id: Vec<u32>,
     table_of_shuffled_id_to_node_id: Vec<u32>,
     start_ids: Vec<u32>,
-    _num_sector: usize,
+
+    #[cfg(feature = "progress-bar")]
+    num_sector: usize,
 }
 
 impl PackedNodes {
@@ -55,12 +58,24 @@ impl PackedNodes {
             })
             .collect();
 
+        // if start_ids.iter().all(|id| {
+        //     let shuffle_id = table_of_node_id_to_shuffled_id[*id as usize] as usize;
+        //     let is_packed = &packed_nodes_table[shuffle_id];
+        //     *is_packed.lock()
+        // }) {
+        //     println!("ok start_ids")
+        // } else {
+        //     println!("no start_ids")
+        // }
+
         Self {
             packed_nodes_table,
             table_of_node_id_to_shuffled_id,
             table_of_shuffled_id_to_node_id,
             start_ids,
-            _num_sector: num_sector
+
+            #[cfg(feature = "progress-bar")]
+            num_sector,
         }
     }
 
@@ -75,7 +90,6 @@ impl PackedNodes {
         let shuffled_id = &self.table_of_node_id_to_shuffled_id[*original_index as usize];
         pack_node(shuffled_id, &self.packed_nodes_table)
     }
-
 }
 
 fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<Mutex<bool>>) -> bool {
@@ -90,14 +104,11 @@ fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<Mutex<bool>>) -> boo
                 true
             }
         }
-        None => {
-            false
-        }
+        None => false,
     }
 }
 
-
-// fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<Mutex<bool>>) -> bool {
+// fn pack_node(shuffled_index: &u32, packed_nodes_table: &Vec<AtomicBool>) -> bool {
 //     let packed_flag = &packed_nodes_table[*shuffled_index as usize];
 
 //     packed_flag
@@ -112,11 +123,12 @@ fn select_random_s(packed_nodes_table: &Vec<Mutex<bool>>) -> Result<u32, ()> {
         // ロックされているなら、先に取られている。
         // ロックが取れても、trueならpackされている。
         match packed_flag.try_lock() {
-            Some(is_packed) => {
+            Some(mut is_packed) => {
                 if *is_packed {
                     scan_index += 1;
                 } else {
                     let original_index = scan_index as u32;
+                    *is_packed = true;
                     return Ok(original_index);
                 }
             }
@@ -130,7 +142,7 @@ fn select_random_s(packed_nodes_table: &Vec<Mutex<bool>>) -> Result<u32, ()> {
     }
 }
 
-// fn select_random_s(packed_nodes_table: &Vec<Mutex<bool>>) -> Result<u32, ()> {
+// fn select_random_s(packed_nodes_table: &Vec<AtomicBool>) -> Result<u32, ()> {
 //     let mut scan_index = 0;
 //     loop {
 //         let packed_flag = &packed_nodes_table[scan_index];
@@ -153,7 +165,6 @@ fn sector_packing<F1, F2>(
     window_size: usize,
     get_edges: &F1,
     get_backlinks: &F2,
-    // packed_nodes_table: &Vec<AtomicBool>,
     packed_nodes: &PackedNodes,
     start_node: u32,
 ) -> Vec<u32>
@@ -168,7 +179,13 @@ where
     // Pick a random, unpacked seed node s.
     sub_array.push(start_node);
 
-    while sub_array_index < window_size {
+    // if packed_nodes.pack_node(&start_node) {
+    //     println!("start node pack is true")
+    // } else {
+    //     // println!("start node pack is false")
+    // }
+
+    while sub_array.len() < window_size {
         // 𝑣𝑒 ← 𝑃 [𝑖];𝑖 ← 𝑖 + 1
         let ve = &sub_array[sub_array_index];
         sub_array_index += 1;
@@ -194,13 +211,14 @@ where
             match heap.get_max() {
                 None => {
                     // if H.empty() then Pick a random unpacked seed node 𝑣max and break.
-                    println!("not found node");
+                    // println!("not found node");
                     match packed_nodes.select_random_unpacked_node() {
                         Ok(s) => {
                             break s;
                         }
                         Err(_) => {
                             // If no unpacked nodes are found, Sector Packing is returned.
+                            // println!("no unpacked nodes are found");
                             return sub_array;
                         }
                     }
@@ -234,14 +252,12 @@ where
     F1: Fn(&u32) -> Vec<u32> + std::marker::Sync,
     F2: Fn(&u32) -> Vec<u32> + std::marker::Sync,
 {
-
     /* Parallel Gordering */
     // Select unpacked node randomly.
     // Scan from end to end to find nodes with the packed flag false and pick the first unpacked node found.
     // The nodes are shuffled to ensure that start nodes are randomly selected.
     // let target_node_len = target_node_bit_vec.iter().filter(|&bit| bit).count();
     let packed_nodes = PackedNodes::new(target_node_bit_vec, rng, window_size);
-
 
     // #[cfg(feature = "progress-bar")]
     // let progress = Some(ProgressBar::new(1000));
@@ -253,11 +269,9 @@ where
     //     bar.set_message("Gordering");
     // }
 
-
     // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
     //   Pick a random, unpacked seed node 𝑠.
     //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-
 
     // let start_ids: Vec<u32> = (0..packed_nodes.num_sector)
     //     .into_par_iter()
@@ -277,7 +291,7 @@ where
     //     .collect::<Vec<_>>();
     let start_ids: Vec<u32> = packed_nodes.start_ids.clone();
 
-    println!("debug 1");
+    // println!("debug 1");
 
     #[cfg(feature = "progress-bar")]
     let progress = Some(ProgressBar::new(1000));
@@ -289,7 +303,9 @@ where
         bar.set_message("Gordering");
     }
 
-    let reordered: Vec<Vec<u32>> = start_ids
+    let (last_id, start_ids) = start_ids.split_last().unwrap();
+
+    let mut reordered: Vec<Vec<u32>> = start_ids
         .into_par_iter()
         .map(|start_node| {
             let res = sector_packing(
@@ -297,7 +313,7 @@ where
                 &get_edges,
                 &get_backlinks,
                 &packed_nodes,
-                start_node,
+                *start_node,
             );
 
             #[cfg(feature = "progress-bar")]
@@ -312,29 +328,29 @@ where
         })
         .collect();
 
-    // let reordered: Vec<u32> = start_ids
-    //     .into_iter()
-    //     .map(|start_node| {
-    //         let res = sector_packing(
-    //             window_size,
-    //             &get_edges,
-    //             &get_backlinks,
-    //             &packed_nodes,
-    //             start_node,
-    //         );
+    let last_res = sector_packing(
+        window_size,
+        &get_edges,
+        &get_backlinks,
+        &packed_nodes,
+        *last_id,
+    );
 
-    //         #[cfg(feature = "progress-bar")]
-    //         if let Some(bar) = &progress {
-    //             let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
-    //             if value % 1000 == 0 {
-    //                 bar.set_position(value as u64);
-    //             }
-    //         }
+    #[cfg(feature = "progress-bar")]
+    if let Some(bar) = &progress {
+        let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+        if value % 1000 == 0 {
+            bar.set_position(value as u64);
+        }
+    }
 
-    //         res
-    //     })
-    //     .flatten()
-    //     .collect();
+    // let unpacked_count = packed_nodes.packed_nodes_table.iter().filter(|is_packed| !*is_packed.lock()).count();
+    // println!("unpacked_count: {}", unpacked_count);
+
+    reordered.push(last_res);
+
+    // let are_all_packed = reordered.iter().flatten().all(|id| !packed_nodes.pack_node(id));
+    // println!("are_all_packed: {}", are_all_packed);
 
     reordered
 }

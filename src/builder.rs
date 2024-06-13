@@ -89,7 +89,10 @@ impl Builder {
     ///
     /// Takes a `Vec<P>` as an argument and returns a `Vec<(P, Vec<usize>)>` with edges added.
     ///
-    pub fn build<P: PointInterface>(self, points: Vec<P>) -> (Vec<(P, Vec<u32>)>, u32, Vec<Vec<u32>>) {
+    pub fn build<P: PointInterface>(
+        self,
+        points: Vec<P>,
+    ) -> (Vec<(P, Vec<u32>)>, u32, Vec<Vec<u32>>) {
         let ann = Vamana::new(points, self);
 
         let nodes = ann
@@ -102,7 +105,7 @@ impl Builder {
                         .into_inner()
                         .into_iter()
                         .map(|(_, i)| i)
-                        .sorted()  // Note: insert_id() requires a sorted array 
+                        .sorted() // Note: insert_id() requires a sorted array
                         .collect(),
                 )
             })
@@ -129,7 +132,7 @@ pub struct Vamana<P> {
     pub nodes: Vec<Node<P>>,
     pub centroid: u32,
     pub builder: Builder,
-    pub backlinks: Vec<Vec<u32>>
+    pub backlinks: Vec<Vec<u32>>,
 }
 
 impl<P> Vamana<P>
@@ -304,7 +307,13 @@ where
             .collect();
         // println!("missings, {:?}", missings);
 
-        (missings,  node_has_backlinks.into_iter().map(|(_, edges)| edges).collect())
+        (
+            missings,
+            node_has_backlinks
+                .into_iter()
+                .map(|(_, edges)| edges)
+                .collect(),
+        )
     }
 
     pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
@@ -314,7 +323,7 @@ where
         let progress_done = AtomicUsize::new(0);
         #[cfg(feature = "progress-bar")]
         if let Some(bar) = &progress {
-            bar.set_length((ann.nodes.len() * 4) as u64);
+            bar.set_length((ann.nodes.len() * 3) as u64);
             bar.set_message("Build index (preparation)");
         }
 
@@ -393,13 +402,13 @@ where
                     insert_dist((nn.0, node_i as u32), &mut current_n_out);
                     sort_list_by_dist_v1(&mut current_n_out);
 
-                    #[cfg(feature = "progress-bar")]
-                    if let Some(bar) = &progress {
-                        let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
-                        if value % 1000 == 0 {
-                            bar.set_position(value as u64);
-                        }
-                    }
+                    // #[cfg(feature = "progress-bar")]
+                    // if let Some(bar) = &progress {
+                    //     let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                    //     if value % 1000 == 0 {
+                    //         bar.set_position(value as u64);
+                    //     }
+                    // }
 
                     is_same
                 })
@@ -416,21 +425,21 @@ where
         (0..node_len).into_par_iter().for_each(|node_i| {
             let mut n_out = ann.nodes[node_i].n_out.write();
 
-            let original_n_out_len = n_out.len();
+            // let original_n_out_len = n_out.len();
 
             // sort_list_by_dist_v1(&mut n_out_dist);
             let mut candidates = n_out.clone();
             *n_out = ann.prune_v2(&mut candidates, vec![]);
 
-            // WIP
-            if n_out.len() > ann.builder.r {
-                println!(
-                    "node_i: {}: {}, oroginal_len {}",
-                    node_i,
-                    n_out.len(),
-                    original_n_out_len
-                );
-            }
+            // // WIP
+            // if n_out.len() > ann.builder.r {
+            //     println!(
+            //         "node_i: {}: {}, oroginal_len {}",
+            //         node_i,
+            //         n_out.len(),
+            //         original_n_out_len
+            //     );
+            // }
 
             #[cfg(feature = "progress-bar")]
             if let Some(bar) = &progress {
@@ -441,15 +450,23 @@ where
             }
         });
 
+        #[cfg(feature = "progress-bar")]
+        if let Some(bar) = &progress {
+            bar.finish();
+        }
+
         // 辿り着けないノードのedgeを全てリセットする。
         // そのノードへの唯一のルートの中で、missingがあると、そのノードも間接的にmissingになる。
         let (mut current_missing, _) = Vamana::<P>::get_backlinks(&ann);
         let missings = loop {
-            current_missing.clone().into_par_iter().for_each(|missing_i| {
-                *ann.nodes[missing_i as usize].n_out.write() = vec![];
-            });
+            current_missing
+                .clone()
+                .into_par_iter()
+                .for_each(|missing_i| {
+                    *ann.nodes[missing_i as usize].n_out.write() = vec![];
+                });
             println!("missings len, {}", current_missing.len());
-    
+
             let (missings_2, _) = Vamana::<P>::get_backlinks(&ann);
 
             if current_missing.len() == missings_2.len() {
@@ -460,7 +477,8 @@ where
 
         // 新しいedgeを与える。
         missings.clone().into_par_iter().for_each(|missing_i| {
-            let (_, mut visited) = ann.greedy_search(&ann.nodes[missing_i as usize].p, 1, ann.builder.l);
+            let (_, mut visited) =
+                ann.greedy_search(&ann.nodes[missing_i as usize].p, 1, ann.builder.l);
             let n_out_dists = ann.prune_v2(&mut visited, vec![]);
             *ann.nodes[missing_i as usize].n_out.write() = n_out_dists;
         });
@@ -471,7 +489,7 @@ where
         missings.into_par_iter().for_each(|missing_i| {
             let mut n_out = ann.nodes[missing_i as usize].n_out.write();
             let (nn_dist, nn_i) = n_out[0];
-            let mut nn_n_out =  ann.nodes[nn_i as usize].n_out.write();
+            let mut nn_n_out = ann.nodes[nn_i as usize].n_out.write();
 
             let a = &ann.nodes[missing_i as usize].p;
 
@@ -489,18 +507,11 @@ where
          missingにvec![]を入れると、それが参照していたやつもmissingになる。
          それらに新しいedgeを入れると、二段階目のやつからmissingが生まれる。
         */
-        
 
         let (missings, backlinks) = Vamana::<P>::get_backlinks(&ann);
-        println!("3. missings len, {}", missings.len());
+        println!("missings len, {}", missings.len());
 
         ann.backlinks = backlinks;
-
-
-        #[cfg(feature = "progress-bar")]
-        if let Some(bar) = &progress {
-            bar.finish();
-        }
     }
 
     pub fn prune(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {

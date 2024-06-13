@@ -191,7 +191,10 @@ fn test_parallel_gorder() {
         BitVec::from_elem(nodes.len(), true),
         10,
         &mut rng,
-    ).into_iter().flatten().collect();
+    )
+    .into_iter()
+    .flatten()
+    .collect();
 
     println!("ordered_nodes: {:?}\n", ordered_nodes.iter().sorted());
 
