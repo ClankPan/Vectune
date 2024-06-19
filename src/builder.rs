@@ -210,8 +210,8 @@ where
             .into_par_iter()
             .map(|_| {
                 (
-                    RwLock::new(Vec::with_capacity(builder.l)), // n_in,
-                    RwLock::new(Vec::with_capacity(builder.l)), // n_out,
+                    RwLock::new(Vec::with_capacity(builder.r)), // n_in,
+                    RwLock::new(Vec::with_capacity(builder.r)), // n_out,
                     RwLock::new(0),                             // nn (nearest node)
                 )
             })
@@ -221,7 +221,7 @@ where
         (0..points_len).into_par_iter().for_each(|node_i| {
             let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
 
-            let mut new_ids = Vec::with_capacity(builder.l);
+            let mut new_ids = Vec::with_capacity(builder.r);
             while new_ids.len() < builder.r {
                 let candidate_i = rng.gen_range(0..points_len as u32);
                 if node_i as u32 == candidate_i
