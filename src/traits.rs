@@ -9,7 +9,7 @@
 ///     ...
 /// }
 /// ```
-pub trait PointInterface: Clone + Sync {
+pub trait PointInterface: Clone + Sync + Send {
     /// A function that returns the distance between two Points. Typically, the Euclidean distance is used.
     ///
     /// # Examples
@@ -64,6 +64,8 @@ pub trait PointInterface: Clone + Sync {
     /// }
     /// ```
     fn div(&self, divisor: &usize) -> Self;
+
+    fn zero() -> Self;
 }
 
 /// Traits that should be implemented for searching, inserting, and deleting after indexing.

@@ -242,4 +242,8 @@ impl VectunePoint for Point {
                 .collect(),
         )
     }
+
+    fn zero() -> Self {
+        Point::from_f32_vec(vec![0.0; Point::dim() as usize])
+    }
 }

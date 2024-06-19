@@ -171,35 +171,53 @@ where
         let points_len = points.len();
 
         /* Find Centroid */
-        let mut sum = points[0].clone();
-        for p in &points[1..] {
-            sum = sum.add(p);
-        }
+        println!("finding centroid");
+        // let mut sum = points[0].clone();
+        // for p in &points[1..] {
+        //     sum = sum.add(p);
+        // }
+        // let sum = points.par_iter().reduce_with(|acc, x| &acc.add(x)).unwrap();
+        let sum = points
+            .par_iter()
+            .fold(|| P::zero(), |acc, x| acc.add(x))
+            .reduce_with(|sum1, sum2| sum1.add(&sum2))
+            .unwrap();
 
         let average_point = sum.div(&points_len);
-        let mut min_dist = f32::MAX;
-        let mut centroid = u32::MAX;
-        for (i, p) in points.iter().enumerate() {
-            let dist = p.distance(&average_point);
-            if dist < min_dist {
-                min_dist = dist;
-                centroid = i as u32;
-            }
-        }
+        // let mut min_dist = f32::MAX;
+        // let mut centroid = u32::MAX;
+        // for (i, p) in points.iter().enumerate() {
+        //     let dist = p.distance(&average_point);
+        //     if dist < min_dist {
+        //         min_dist = dist;
+        //         centroid = i as u32;
+        //     }
+        // }
+        println!("finding medoid");
+        let centroid = points
+            .par_iter()
+            .enumerate()
+            .map(|(i, p)| (i, p.distance(&average_point)))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Less))
+            .unwrap()
+            .0 as u32;
 
         /* Get random connected graph */
 
         // edge (in, out)
-        let edges: Vec<(RwLock<Vec<u32>>, RwLock<Vec<u32>>, RwLock<u32>)> = (0..points_len)
+        println!("init empty edges");
+        let edges: Vec<(RwLock<Vec<u32>>, RwLock<Vec<(f32, u32)>>, RwLock<u32>)> = (0..points_len)
+            .into_par_iter()
             .map(|_| {
                 (
-                    RwLock::new(Vec::with_capacity(builder.l)),
-                    RwLock::new(Vec::with_capacity(builder.l)),
-                    RwLock::new(0),
+                    RwLock::new(Vec::with_capacity(builder.l)), // n_in,
+                    RwLock::new(Vec::with_capacity(builder.l)), // n_out,
+                    RwLock::new(0),                             // nn (nearest node)
                 )
             })
             .collect();
 
+        println!("connecting nodes randomly");
         (0..points_len).into_par_iter().for_each(|node_i| {
             let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
 
@@ -217,32 +235,60 @@ where
                 }
             }
 
-            let mut n_out = edges[node_i].1.write();
-            *n_out = new_ids;
+            let new_n_out: Vec<(f32, u32)> = new_ids
+                .into_par_iter()
+                .map(|edge_i| {
+                    let dist = points[edge_i as usize].distance(&points[node_i]);
+                    (dist, edge_i)
+                })
+                .collect();
+
+            *edges[node_i].1.write() = new_n_out;
+
+            // let mut n_out = edges[node_i].1.write();
+            // *n_out = new_ids;
         });
 
         // println!("make nodes");
+        println!("zipping point and edges");
+        // let nodes: Vec<Node<P>> = points
+        //     .into_par_iter()
+        //     .zip(edges.into_par_iter())
+        //     .map(|(p, (_n_in, n_out, nn))| {
+        //         Node {
+        //             n_out,
+        //             p,
+        //             nn,
+        //         }
+        //     })
+        //     .collect();
 
         let nodes: Vec<Node<P>> = edges
-            .into_iter()
-            .zip(points.clone())
-            .map(|((_n_in, n_out, nn), p)| {
-                let n_out: Vec<(f32, u32)> = n_out
-                    .read()
-                    .clone()
-                    .into_iter()
-                    .map(|edge_i| {
-                        let dist = points[edge_i as usize].distance(&p);
-                        (dist, edge_i)
-                    })
-                    .collect();
-                Node {
-                    n_out: RwLock::new(n_out),
-                    p,
-                    nn,
-                }
-            })
+            .into_par_iter()
+            .zip(points)
+            .map(|((_n_in, n_out, nn), p)| Node { n_out, p, nn })
             .collect();
+
+        // let nodes: Vec<Node<&P>> = edges
+        //     .into_par_iter()
+        //     .zip(points.par_iter())
+        //     .map(|((_n_in, n_out, nn), p)| {
+        //         let n_out: Vec<(f32, u32)> = n_out
+        //             .read()
+        //             .clone()
+        //             .into_iter()
+        //             .map(|edge_i| {
+        //                 let dist = points[edge_i as usize].distance(&p);
+        //                 (dist, edge_i)
+        //             })
+        //             .collect();
+        //         Node {
+        //             n_out: RwLock::new(n_out),
+        //             p,
+        //             nn,
+        //         }
+        //     })
+        //     .collect();
 
         Self {
             nodes,
