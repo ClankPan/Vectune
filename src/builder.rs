@@ -1,3 +1,4 @@
+use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
 use std::collections::HashSet;
 use std::time::Instant;
@@ -206,11 +207,11 @@ where
 
         // edge (in, out)
         println!("init empty edges");
-        let edges: Vec<(RwLock<Vec<u32>>, RwLock<Vec<(f32, u32)>>, RwLock<u32>)> = (0..points_len)
+        let edges: Vec<(RwLock<u32>, RwLock<Vec<(f32, u32)>>, RwLock<u32>)> = (0..points_len)
             .into_par_iter()
             .map(|_| {
                 (
-                    RwLock::new(Vec::with_capacity(builder.r)), // n_in,
+                    RwLock::new(0),                             // n_in,
                     RwLock::new(Vec::with_capacity(builder.r)), // n_out,
                     RwLock::new(0),                             // nn (nearest node)
                 )
@@ -226,11 +227,11 @@ where
                 let candidate_i = rng.gen_range(0..points_len as u32);
                 if node_i as u32 == candidate_i
                     || new_ids.contains(&candidate_i)
-                    || edges[candidate_i as usize].0.read().len() >= builder.r + builder.r / 2
+                    || *edges[candidate_i as usize].0.read() >= (builder.r + builder.r / 2) as u32
                 {
                     continue;
                 } else {
-                    edges[candidate_i as usize].0.write().push(node_i as u32);
+                    *edges[candidate_i as usize].0.write() += 1;
                     new_ids.push(candidate_i);
                 }
             }
@@ -298,9 +299,63 @@ where
         }
     }
 
-    // fn _no_backlinks_nodes(ann: &Vamana<P>) -> Vec<u32> {
+    fn get_missings(ann: &Vamana<P>) -> Vec<u32> {
+        ann.nodes
+            .par_chunks(1000)
+            .map(|chunk| {
+                let mut bit_vec = BitVec::from_elem(ann.nodes.len(), false);
+                for node in chunk {
+                    for (_, edges_i) in &*node.n_out.read() {
+                        bit_vec.set(*edges_i as usize, true);
+                    }
+                }
+                bit_vec
+            })
+            .reduce_with(|mut acc, x| {
+                acc.and(&x);
+                acc
+            })
+            .unwrap()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, is_true)| if !is_true { Some(index as u32) } else { None })
+            .collect()
+    }
+
+    fn get_backlinks(ann: &Vamana<P>) -> Vec<Vec<u32>> {
+        // Backlinks
+        let mut all_edges: Vec<(u32, u32)> = ann
+            .nodes
+            .iter()
+            .enumerate()
+            .flat_map(|(i, node)| {
+                let i = i as u32;
+                node.n_out
+                    .read()
+                    .clone()
+                    .into_iter()
+                    .map(move |(_, out_i)| (out_i, i))
+            })
+            .collect();
+
+        all_edges.par_sort_unstable();
+
+        let node_has_backlinks: Vec<(u32, Vec<u32>)> = all_edges
+            .into_iter()
+            .group_by(|&(key, _)| key)
+            .into_iter()
+            .map(|(key, group)| (key, group.map(|(_, edge)| edge).collect()))
+            .collect();
+
+            node_has_backlinks
+            .into_iter()
+            .map(|(_, edges)| edges)
+            .collect()
+    }
+
+    // fn get_backlinks(ann: &Vamana<P>) -> (Vec<u32>, Vec<Vec<u32>>) {
     //     // Backlinks
-    //     let node_has_backlinks: Vec<u32> = ann
+    //     let node_has_backlinks: Vec<(u32, Vec<u32>)> = ann
     //         .nodes
     //         .iter()
     //         .enumerate()
@@ -316,51 +371,31 @@ where
     //         .sorted()
     //         .group_by(|&(key, _)| key)
     //         .into_iter()
-    //         .map(|(key, _group)| key)
+    //         .map(|(key, group)| (key, group.map(|(_, edge)| edge).collect()))
     //         .collect();
-    //     let set: HashSet<u32> = node_has_backlinks.into_iter().collect();
-    //     let missings: Vec<u32> = (0..ann.nodes.len() as u32)
-    //         .filter(|num| !set.contains(num))
+    //     // let set: HashSet<u32> = node_has_backlinks.iter().map(|(key, _)| *key).collect();
+    //     let mut set = BitVec::from_elem(ann.nodes.len(), false);
+    //     for key in node_has_backlinks.iter().map(|(key, _)| *key) {
+    //         set.set(key as usize, true)
+    //     }
+    //     // let missings: Vec<u32> = (0..ann.nodes.len() as u32)
+    //     //     .filter(|num| !set.contains(num))
+    //     //     .collect();
+    //     let missings: Vec<u32> = set
+    //         .into_iter()
+    //         .enumerate()
+    //         .filter_map(|(index, is_true)| if !is_true { Some(index as u32) } else { None })
     //         .collect();
     //     // println!("missings, {:?}", missings);
 
-    //     missings
+    //     (
+    //         missings,
+    //         node_has_backlinks
+    //             .into_iter()
+    //             .map(|(_, edges)| edges)
+    //             .collect(),
+    //     )
     // }
-
-    fn get_backlinks(ann: &Vamana<P>) -> (Vec<u32>, Vec<Vec<u32>>) {
-        // Backlinks
-        let node_has_backlinks: Vec<(u32, Vec<u32>)> = ann
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
-                let i = i as u32;
-                node.n_out
-                    .read()
-                    .clone()
-                    .into_iter()
-                    .map(move |(_, out_i)| (out_i, i))
-            })
-            .flatten()
-            .sorted()
-            .group_by(|&(key, _)| key)
-            .into_iter()
-            .map(|(key, group)| (key, group.map(|(_, edge)| edge).collect()))
-            .collect();
-        let set: HashSet<u32> = node_has_backlinks.iter().map(|(key, _)| *key).collect();
-        let missings: Vec<u32> = (0..ann.nodes.len() as u32)
-            .filter(|num| !set.contains(num))
-            .collect();
-        // println!("missings, {:?}", missings);
-
-        (
-            missings,
-            node_has_backlinks
-                .into_iter()
-                .map(|(_, edges)| edges)
-                .collect(),
-        )
-    }
 
     pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
         #[cfg(feature = "progress-bar")]
@@ -503,7 +538,7 @@ where
 
         // 辿り着けないノードのedgeを全てリセットする。
         // そのノードへの唯一のルートの中で、missingがあると、そのノードも間接的にmissingになる。
-        let (mut current_missing, _) = Vamana::<P>::get_backlinks(&ann);
+        let mut current_missing = Vamana::<P>::get_missings(&ann);
         let missings = loop {
             current_missing
                 .clone()
@@ -513,7 +548,7 @@ where
                 });
             println!("missings len, {}", current_missing.len());
 
-            let (missings_2, _) = Vamana::<P>::get_backlinks(&ann);
+            let missings_2 = Vamana::<P>::get_missings(&ann);
 
             if current_missing.len() == missings_2.len() {
                 break missings_2;
@@ -554,8 +589,7 @@ where
          それらに新しいedgeを入れると、二段階目のやつからmissingが生まれる。
         */
 
-        let (missings, backlinks) = Vamana::<P>::get_backlinks(&ann);
-        println!("missings len, {}", missings.len());
+        let backlinks = Vamana::<P>::get_backlinks(&ann);
 
         ann.backlinks = backlinks;
     }
