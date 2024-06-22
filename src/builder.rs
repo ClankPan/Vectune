@@ -1,6 +1,5 @@
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
-use std::collections::HashSet;
 use std::time::Instant;
 
 use rand::seq::SliceRandom;
@@ -158,7 +157,7 @@ where
         ann
     }
 
-    pub fn random_graph_init(points: Vec<P>, builder: Builder, _rng: &mut SmallRng) -> Self {
+    pub fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
         if points.is_empty() {
             return Self {
                 nodes: Vec::new(),
@@ -207,33 +206,74 @@ where
 
         // edge (in, out)
         println!("init empty edges");
-        let edges: Vec<(RwLock<u32>, RwLock<Vec<(f32, u32)>>, RwLock<u32>)> = (0..points_len)
+        let edges: Vec<(RwLock<u32>, RwLock<Vec<(f32, u32)>>)> = (0..points_len)
             .into_par_iter()
             .map(|_| {
                 (
                     RwLock::new(0),                             // n_in,
                     RwLock::new(Vec::with_capacity(builder.r)), // n_out,
-                    RwLock::new(0),                             // nn (nearest node)
                 )
             })
             .collect();
 
         println!("connecting nodes randomly");
+            
+        #[cfg(feature = "progress-bar")]
+        let progress = Some(ProgressBar::new(1000));
+        #[cfg(feature = "progress-bar")]
+        let progress_done = AtomicUsize::new(0);
+        #[cfg(feature = "progress-bar")]
+        if let Some(bar) = &progress {
+            bar.set_length(points_len as u64);
+            bar.set_message("");
+        }
+
+        let mut shuffle_ids: Vec<u32> = (0..points_len as u32).collect();
+        shuffle_ids.shuffle(rng);
+
+
+        // let used_index = AtomicUsize::new(0);
+
         (0..points_len).into_par_iter().for_each(|node_i| {
             let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
 
             let mut new_ids = Vec::with_capacity(builder.r);
+            let mut shuffle_iter_count = rng.gen_range(0..(points_len * 5) as u32);
             while new_ids.len() < builder.r {
-                let candidate_i = rng.gen_range(0..points_len as u32);
-                if node_i as u32 == candidate_i
-                    || new_ids.contains(&candidate_i)
-                    || *edges[candidate_i as usize].0.read() >= (builder.r + builder.r / 2) as u32
-                {
+                // println!("new_ids len: {}", new_ids.len());
+                shuffle_iter_count += 1;
+                let candidate_i = shuffle_ids[(shuffle_iter_count as usize) % points_len];
+
+                if node_i as u32 == candidate_i || new_ids.contains(&candidate_i) {
                     continue;
-                } else {
-                    *edges[candidate_i as usize].0.write() += 1;
-                    new_ids.push(candidate_i);
                 }
+
+                if let Some(mut n_in_count) = edges[candidate_i as usize].0.try_write() {
+                    if *n_in_count >= (builder.r + builder.r / 3) as u32 {
+                        // println!("d3: {}, {}", candidate_i, *n_in_count);
+                        continue;
+                    } else {
+                        *n_in_count += 1;
+                        new_ids.push(candidate_i);
+                        shuffle_iter_count = rng.gen_range(0..points_len as u32);
+                    }
+                } else {
+                    continue;
+                }
+
+
+                // let candidate_i = rng.gen_range(0..points_len as u32);
+                
+                // if node_i as u32 == candidate_i
+                //     || new_ids.contains(&candidate_i)
+                //     || *edges[candidate_i as usize].0.read() >= (builder.r + builder.r / 2) as u32
+                // {
+                //     continue;
+                // } else {
+                //     *edges[candidate_i as usize].0.write() += 1;
+                //     new_ids.push(candidate_i);
+                // }
+
             }
 
             let new_n_out: Vec<(f32, u32)> = new_ids
@@ -246,9 +286,50 @@ where
 
             *edges[node_i].1.write() = new_n_out;
 
+
+            #[cfg(feature = "progress-bar")]
+            if let Some(bar) = &progress {
+                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+                if value % 1 == 0 {
+                    bar.set_position(value as u64);
+                }
+            }
+
             // let mut n_out = edges[node_i].1.write();
             // *n_out = new_ids;
         });
+
+
+        // (0..points_len).into_par_iter().for_each(|node_i| {
+        //     let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
+
+        //     let mut new_ids = Vec::with_capacity(builder.r);
+        //     while new_ids.len() < builder.r {
+        //         let candidate_i = rng.gen_range(0..points_len as u32);
+        //         if node_i as u32 == candidate_i
+        //             || new_ids.contains(&candidate_i)
+        //             || *edges[candidate_i as usize].0.read() >= (builder.r + builder.r / 2) as u32
+        //         {
+        //             continue;
+        //         } else {
+        //             *edges[candidate_i as usize].0.write() += 1;
+        //             new_ids.push(candidate_i);
+        //         }
+        //     }
+
+        //     let new_n_out: Vec<(f32, u32)> = new_ids
+        //         .into_par_iter()
+        //         .map(|edge_i| {
+        //             let dist = points[edge_i as usize].distance(&points[node_i]);
+        //             (dist, edge_i)
+        //         })
+        //         .collect();
+
+        //     *edges[node_i].1.write() = new_n_out;
+
+        //     // let mut n_out = edges[node_i].1.write();
+        //     // *n_out = new_ids;
+        // });
 
         // println!("make nodes");
         println!("zipping point and edges");
@@ -267,7 +348,20 @@ where
         let nodes: Vec<Node<P>> = edges
             .into_par_iter()
             .zip(points)
-            .map(|((_n_in, n_out, nn), p)| Node { n_out, p, nn })
+            .map(|((_n_in, n_out), p)| {
+                let nn = n_out
+                    .read()
+                    .iter()
+                    .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Less))
+                    .unwrap()
+                    .clone()
+                    .1;
+                Node {
+                    n_out,
+                    p,
+                    nn: RwLock::new(nn),
+                }
+            })
             .collect();
 
         // let nodes: Vec<Node<&P>> = edges
@@ -347,7 +441,7 @@ where
             .map(|(key, group)| (key, group.map(|(_, edge)| edge).collect()))
             .collect();
 
-            node_has_backlinks
+        node_has_backlinks
             .into_iter()
             .map(|(_, edges)| edges)
             .collect()
