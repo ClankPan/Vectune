@@ -195,6 +195,9 @@ fn test_parallel_gorder() {
         BitVec::from_elem(nodes.len(), true),
         10,
         &mut rng,
+
+        #[cfg(feature = "progress-bar")]
+        None,
     )
     .into_iter()
     .flatten()

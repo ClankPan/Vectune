@@ -26,7 +26,7 @@ use crate::PointInterface;
 // - `l` is the size of the retention list for greedy-search; increasing it allows for the construction of more accurate graphs, but the computational cost grows exponentially.
 // - `seed` is used for initializing random graphs; it allows for the fixation of the random graph, which can be useful for debugging.
 ///
-#[derive(Clone)]
+// #[derive(Clone)]
 pub struct Builder {
     a: f32,
     r: usize,
@@ -34,7 +34,7 @@ pub struct Builder {
     seed: u64,
 
     #[cfg(feature = "progress-bar")]
-    progress: Option<ProgressBar>,
+    progress: Option<(ProgressBar, AtomicUsize)>,
 }
 
 pub const DEFAULT_R: usize = 70;
@@ -46,6 +46,7 @@ impl Default for Builder {
             r: DEFAULT_R,
             l: 125,
             seed: rand::random(),
+
             #[cfg(feature = "progress-bar")]
             progress: None,
         }
@@ -117,7 +118,7 @@ impl Builder {
 
     #[cfg(feature = "progress-bar")]
     pub fn progress(mut self, bar: ProgressBar) -> Self {
-        self.progress = Some(bar);
+        self.progress = Some((bar, AtomicUsize::new(0)));
         self
     }
 }
@@ -143,21 +144,33 @@ where
         let mut rng = SmallRng::seed_from_u64(builder.seed);
         // println!("seed: {}", builder.seed);
 
-        let start_time = Instant::now();
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &builder.progress {
+            bar.set_length(points.len() as u64 * 3 + 1000); // 100 is for adding missing nodes process
+            // bar.set_message("");
+        }
+
+        let _start_time = Instant::now();
         let mut ann = Vamana::<P>::random_graph_init(points, builder, &mut rng);
 
         // Prune Edges
         Vamana::<P>::indexing(&mut ann, &mut rng);
 
-        println!(
-            "\ntotal indexing time: {:?}",
-            Instant::now().duration_since(start_time)
-        );
+        // println!(
+        //     "\ntotal indexing time: {:?}",
+        //     Instant::now().duration_since(start_time)
+        // );
 
         ann
     }
 
     pub fn random_graph_init(points: Vec<P>, builder: Builder, rng: &mut SmallRng) -> Self {
+
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &builder.progress {
+            bar.set_message("random_graph_init");
+        }
+
         if points.is_empty() {
             return Self {
                 nodes: Vec::new(),
@@ -171,7 +184,10 @@ where
         let points_len = points.len();
 
         /* Find Centroid */
-        println!("finding centroid");
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &builder.progress {
+            bar.set_message("finding a medoid");
+        }
         // let mut sum = points[0].clone();
         // for p in &points[1..] {
         //     sum = sum.add(p);
@@ -193,7 +209,7 @@ where
         //         centroid = i as u32;
         //     }
         // }
-        println!("finding medoid");
+        // println!("finding medoid");
         let centroid = points
             .par_iter()
             .enumerate()
@@ -205,7 +221,7 @@ where
         /* Get random connected graph */
 
         // edge (in, out)
-        println!("init empty edges");
+        // println!("init empty edges");
         let edges: Vec<(RwLock<u32>, RwLock<Vec<(f32, u32)>>)> = (0..points_len)
             .into_par_iter()
             .map(|_| {
@@ -216,23 +232,28 @@ where
             })
             .collect();
 
-        println!("connecting nodes randomly");
+        // println!("connecting nodes randomly");
             
-        #[cfg(feature = "progress-bar")]
-        let progress = Some(ProgressBar::new(1000));
-        #[cfg(feature = "progress-bar")]
-        let progress_done = AtomicUsize::new(0);
-        #[cfg(feature = "progress-bar")]
-        if let Some(bar) = &progress {
-            bar.set_length(points_len as u64);
-            bar.set_message("");
-        }
+        // #[cfg(feature = "progress-bar")]
+        // let progress = Some(ProgressBar::new(1000));
+        // #[cfg(feature = "progress-bar")]
+        // let progress_done = AtomicUsize::new(0);
+        // #[cfg(feature = "progress-bar")]
+        // if let Some((bar, _done)) = &mut builder.progress {
+        //     bar.set_length(points_len as u64);
+        //     bar.set_message("");
+        // }
 
         let mut shuffle_ids: Vec<u32> = (0..points_len as u32).collect();
         shuffle_ids.shuffle(rng);
 
 
         // let used_index = AtomicUsize::new(0);
+
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &builder.progress {
+            bar.set_message("connecting nodes randomly");
+        }
 
         (0..points_len).into_par_iter().for_each(|node_i| {
             let mut rng = SmallRng::seed_from_u64(builder.seed + node_i as u64);
@@ -288,9 +309,9 @@ where
 
 
             #[cfg(feature = "progress-bar")]
-            if let Some(bar) = &progress {
-                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
-                if value % 1 == 0 {
+            if let Some((bar, done)) = &builder.progress {
+                let value = done.fetch_add(1, atomic::Ordering::Relaxed);
+                if value % 1000 == 0 {
                     bar.set_position(value as u64);
                 }
             }
@@ -332,7 +353,7 @@ where
         // });
 
         // println!("make nodes");
-        println!("zipping point and edges");
+        // println!("zipping point and edges");
         // let nodes: Vec<Node<P>> = points
         //     .into_par_iter()
         //     .zip(edges.into_par_iter())
@@ -344,6 +365,11 @@ where
         //         }
         //     })
         //     .collect();
+
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &builder.progress {
+            bar.set_message("zipping point and edges");
+        }
 
         let nodes: Vec<Node<P>> = edges
             .into_par_iter()
@@ -406,7 +432,7 @@ where
                 bit_vec
             })
             .reduce_with(|mut acc, x| {
-                acc.and(&x);
+                acc.or(&x);
                 acc
             })
             .unwrap()
@@ -414,6 +440,42 @@ where
             .enumerate()
             .filter_map(|(index, is_true)| if !is_true { Some(index as u32) } else { None })
             .collect()
+
+        // let node_has_backlinks: Vec<(u32, Vec<u32>)> = ann
+        //     .nodes
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(i, node)| {
+        //         let i = i as u32;
+        //         node.n_out
+        //             .read()
+        //             .clone()
+        //             .into_iter()
+        //             .map(move |(_, out_i)| (out_i, i))
+        //     })
+        //     .flatten()
+        //     .sorted()
+        //     .group_by(|&(key, _)| key)
+        //     .into_iter()
+        //     .map(|(key, group)| (key, group.map(|(_, edge)| edge).collect()))
+        //     .collect();
+        // // let set: HashSet<u32> = node_has_backlinks.iter().map(|(key, _)| *key).collect();
+        // let mut set = BitVec::from_elem(ann.nodes.len(), false);
+        // for key in node_has_backlinks.iter().map(|(key, _)| *key) {
+        //     set.set(key as usize, true)
+        // }
+        // // let missings: Vec<u32> = (0..ann.nodes.len() as u32)
+        // //     .filter(|num| !set.contains(num))
+        // //     .collect();
+        // let missings: Vec<u32> = set
+        //     .into_iter()
+        //     .enumerate()
+        //     .filter_map(|(index, is_true)| if !is_true { Some(index as u32) } else { None })
+        //     .collect();
+        // // println!("missings, {:?}", missings);
+
+        // missings
+            
     }
 
     fn get_backlinks(ann: &Vamana<P>) -> Vec<Vec<u32>> {
@@ -492,14 +554,20 @@ where
     // }
 
     pub fn indexing(ann: &mut Vamana<P>, rng: &mut SmallRng) {
+        // #[cfg(feature = "progress-bar")]
+        // let progress = &ann.builder.progress;
+        // #[cfg(feature = "progress-bar")]
+        // let progress_done = AtomicUsize::new(0);
+        // #[cfg(feature = "progress-bar")]
+        // if let Some((bar, _done)) = &ann.builder.progress {
+        //     bar.set_length((ann.nodes.len() * 2) as u64);
+        //     bar.set_message("Build index (preparation)");
+        // }
+
+
         #[cfg(feature = "progress-bar")]
-        let progress = &ann.builder.progress;
-        #[cfg(feature = "progress-bar")]
-        let progress_done = AtomicUsize::new(0);
-        #[cfg(feature = "progress-bar")]
-        if let Some(bar) = &progress {
-            bar.set_length((ann.nodes.len() * 3) as u64);
-            bar.set_message("Build index (preparation)");
+        if let Some((bar, _done)) = &ann.builder.progress {
+            bar.set_message("visiting all nodes");
         }
 
         let node_len = ann.nodes.len();
@@ -554,8 +622,8 @@ where
                 }
 
                 #[cfg(feature = "progress-bar")]
-                if let Some(bar) = &progress {
-                    let value = progress_done.fetch_add(2, atomic::Ordering::Relaxed);
+                if let Some((bar, done)) = &ann.builder.progress {
+                    let value = done.fetch_add(1, atomic::Ordering::Relaxed);
                     if value % 1000 == 0 {
                         bar.set_position(value as u64);
                     }
@@ -563,6 +631,11 @@ where
             });
 
         // Add node's nearest neigbor
+
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &ann.builder.progress {
+            bar.set_message("adding node's nearest neigbor");
+        }
         loop {
             let is_stable = (0..node_len)
                 .into_par_iter()
@@ -597,7 +670,13 @@ where
 
         // Vamana::<P>::no_backlinks_nodes(&ann);
 
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _done)) = &ann.builder.progress {
+            bar.set_message("pruning extra edges");
+        }
+
         (0..node_len).into_par_iter().for_each(|node_i| {
+            // println!("debug1");
             let mut n_out = ann.nodes[node_i].n_out.write();
 
             // let original_n_out_len = n_out.len();
@@ -617,8 +696,8 @@ where
             // }
 
             #[cfg(feature = "progress-bar")]
-            if let Some(bar) = &progress {
-                let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
+            if let Some((bar, done)) = &ann.builder.progress {
+                let value = done.fetch_add(1, atomic::Ordering::Relaxed);
                 if value % 1000 == 0 {
                     bar.set_position(value as u64);
                 }
@@ -626,9 +705,14 @@ where
         });
 
         #[cfg(feature = "progress-bar")]
-        if let Some(bar) = &progress {
-            bar.finish();
+        if let Some((bar, done)) = &ann.builder.progress {
+            bar.set_message("adding edges for missing nodes");
+            let value = done.fetch_add(1, atomic::Ordering::Relaxed);
+            if value % 1000 == 0 {
+                bar.set_position(value as u64);
+            }
         }
+
 
         // 辿り着けないノードのedgeを全てリセットする。
         // そのノードへの唯一のルートの中で、missingがあると、そのノードも間接的にmissingになる。
@@ -640,7 +724,7 @@ where
                 .for_each(|missing_i| {
                     *ann.nodes[missing_i as usize].n_out.write() = vec![];
                 });
-            println!("missings len, {}", current_missing.len());
+            // println!("missings len, {}", current_missing.len());
 
             let missings_2 = Vamana::<P>::get_missings(&ann);
 
@@ -662,6 +746,7 @@ where
         // そのNNを交換したnodeで書き換える。
         // グラフは、missingsがなくても検索が成り立っているので、NNを入れ替えても問題ない。
         missings.into_par_iter().for_each(|missing_i| {
+
             let mut n_out = ann.nodes[missing_i as usize].n_out.write();
             let (nn_dist, nn_i) = n_out[0];
             let mut nn_n_out = ann.nodes[nn_i as usize].n_out.write();
@@ -675,6 +760,7 @@ where
             }
 
             insert_dist((nn_dist, missing_i), &mut nn_n_out);
+
         });
 
         /*
@@ -686,6 +772,12 @@ where
         let backlinks = Vamana::<P>::get_backlinks(&ann);
 
         ann.backlinks = backlinks;
+
+
+        #[cfg(feature = "progress-bar")]
+        if let Some((bar, _)) = &mut ann.builder.progress {
+            bar.finish();
+        }
     }
 
     pub fn prune(&self, candidates: &mut Vec<(f32, u32)>) -> Vec<u32> {

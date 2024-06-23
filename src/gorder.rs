@@ -247,6 +247,9 @@ pub fn gorder<F1, F2>(
     target_node_bit_vec: BitVec,
     window_size: usize,
     rng: &mut SmallRng,
+
+    #[cfg(feature = "progress-bar")]
+    pb: Option<ProgressBar>
 ) -> Vec<Vec<u32>>
 where
     F1: Fn(&u32) -> Vec<u32> + std::marker::Sync,
@@ -258,47 +261,12 @@ where
     // The nodes are shuffled to ensure that start nodes are randomly selected.
     // let target_node_len = target_node_bit_vec.iter().filter(|&bit| bit).count();
     let packed_nodes = PackedNodes::new(target_node_bit_vec, rng, window_size);
-
-    // #[cfg(feature = "progress-bar")]
-    // let progress = Some(ProgressBar::new(1000));
-    // #[cfg(feature = "progress-bar")]
-    // let progress_done = AtomicUsize::new(0);
-    // #[cfg(feature = "progress-bar")]
-    // if let Some(bar) = &progress {
-    //     bar.set_length(iter_size as u64);
-    //     bar.set_message("Gordering");
-    // }
-
-    // parallel for 𝑖 ∈ [0, 1, . . . , ⌊|X|/𝑤⌋ − 1] do
-    //   Pick a random, unpacked seed node 𝑠.
-    //   SectorPack(𝑃 [𝑖 ∗ 𝑤], D, 𝑠, 𝑤,)
-
-    // let start_ids: Vec<u32> = (0..packed_nodes.num_sector)
-    //     .into_par_iter()
-    //     .map(|_| {
-    //         let s = packed_nodes.select_random_unpacked_node().unwrap();
-
-    //         #[cfg(feature = "progress-bar")]
-    //         if let Some(bar) = &progress {
-    //             let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
-    //             if value % 1000 == 0 {
-    //                 bar.set_position(value as u64);
-    //             }
-    //         }
-
-    //         s
-    //     })
-    //     .collect::<Vec<_>>();
     let start_ids: Vec<u32> = packed_nodes.start_ids.clone();
 
-    // println!("debug 1");
-
-    #[cfg(feature = "progress-bar")]
-    let progress = Some(ProgressBar::new(1000));
     #[cfg(feature = "progress-bar")]
     let progress_done = AtomicUsize::new(0);
     #[cfg(feature = "progress-bar")]
-    if let Some(bar) = &progress {
+    if let Some(bar) = &pb {
         bar.set_length(packed_nodes.num_sector as u64);
         bar.set_message("Gordering");
     }
@@ -317,7 +285,7 @@ where
             );
 
             #[cfg(feature = "progress-bar")]
-            if let Some(bar) = &progress {
+            if let Some(bar) = &pb {
                 let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
                 if value % 1000 == 0 {
                     bar.set_position(value as u64);
@@ -337,7 +305,7 @@ where
     );
 
     #[cfg(feature = "progress-bar")]
-    if let Some(bar) = &progress {
+    if let Some(bar) = &pb {
         let value = progress_done.fetch_add(1, atomic::Ordering::Relaxed);
         if value % 1000 == 0 {
             bar.set_position(value as u64);
@@ -351,6 +319,11 @@ where
 
     // let are_all_packed = reordered.iter().flatten().all(|id| !packed_nodes.pack_node(id));
     // println!("are_all_packed: {}", are_all_packed);
+
+    #[cfg(feature = "progress-bar")]
+    if let Some(bar) = &pb {
+        bar.finish();
+    }
 
     reordered
 }
