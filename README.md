@@ -7,6 +7,10 @@
 Vectune is a lightweight VectorDB with Incremental Indexing, based on [FreshVamana](https://arxiv.org/pdf/2105.09613.pdf).
 This project is implemented with the support of KinicDAO and powers the backend of [KinicVectorDB](https://www.kinic.io/) for vector indexing.
 
+Made with ❤️ by [ICME Labs](https://blog.icme.io/).
+
+<img width="983" height="394" alt="icme_labs" src="https://github.com/user-attachments/assets/ffc334ed-c301-4ce6-8ca3-a565328904fe" />
+
 ## Getting Start
 
 By specifying progress-bar in features, you can check the progress of indexing.
