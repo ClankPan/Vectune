@@ -270,9 +270,9 @@ where
     }
 
     pub async fn delete<F, Fut>(&mut self, a: f32, commit: F) -> Vec<u32>
-        where
-            F: Fn() -> Fut,
-            Fut: Future<Output = ()>,
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = ()>,
     {
         let removed_indices: Vec<u32> = self
             .storage
@@ -292,11 +292,11 @@ where
             .filter_map(|p_index| match self.storage.get(&p_index) {
                 Some(p_node) => Some((p_index, p_node)),
                 None => None,
-            }).collect();
-        
+            })
+            .collect();
+
         // Iterate all target nodes
         for (p_index, p_node) in target_nodes {
-
             // Candidates excluding removed indiecs
             let candidates: Vec<_> = p_node
                 .edges()
@@ -317,13 +317,13 @@ where
                 .dedup()
                 .filter_map(|candidate_node_index| {
                     if removed_indices.contains(&candidate_node_index) {
-                        return None
+                        return None;
                     };
                     match self.storage.get(&candidate_node_index) {
                         Some(candidate_node) => {
                             let dist = Dist(candidate_node.point().distance(&p_node.point));
                             Some((dist, candidate_node_index))
-                        },
+                        }
                         None => None,
                     }
                 })
@@ -332,10 +332,13 @@ where
             let new_edges = self.prune(candidates, a);
 
             // Update edge
-            self.storage.set(p_index, Node {
-                edges: new_edges,
-                point: p_node.point(),
-            });
+            self.storage.set(
+                p_index,
+                Node {
+                    edges: new_edges,
+                    point: p_node.point(),
+                },
+            );
 
             commit().await;
         }
@@ -535,7 +538,7 @@ mod tests {
             let keys: Vec<_> = self.nodes.keys().collect();
 
             loop {
-                let Some(&random_key) = keys.get(rng.gen_range(0..keys.len())) else {
+                let Some(&random_key) = keys.get(rng.random_range(0..keys.len())) else {
                     panic!("btree is empty")
                 };
 
@@ -556,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_get() {
-        let mut rng: SmallRng = SmallRng::from_entropy();
+        let mut rng: SmallRng = SmallRng::from_rng(&mut rand::rng());
         let mut graph: Graph<Point, TestStorage, R, SmallRng> = Graph::init(DIM);
 
         env_logger::init();
@@ -580,7 +583,7 @@ mod tests {
         let hit_counts: f32 = test_points[split_count as usize..]
             .par_iter()
             .map_init(
-                || SmallRng::from_entropy(),
+                || SmallRng::from_rng(&mut rand::rng()),
                 |rng, (_, p)| {
                     let p = p.clone();
                     let ground_truth: Vec<(Dist<f32>, u32)> = test_points
@@ -618,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let mut rng: SmallRng = SmallRng::from_entropy();
+        let mut rng: SmallRng = SmallRng::from_rng(&mut rand::rng());
         let mut graph: Graph<Point, TestStorage, R, SmallRng> = Graph::init(DIM);
 
         env_logger::init();
@@ -657,7 +660,7 @@ mod tests {
 
         // Assert result does not include removed indices
         test_points.par_iter().for_each_init(
-            || SmallRng::from_entropy(),
+            || SmallRng::from_rng(&mut rand::rng()),
             |rng, (_, p)| {
                 let result = graph.search(p, L, rng);
                 result
