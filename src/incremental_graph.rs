@@ -270,9 +270,9 @@ where
     }
 
     pub async fn delete<F, Fut>(&mut self, a: f32, commit: F) -> Vec<u32>
-    where
-        F: Fn() -> Fut,
-        Fut: Future<Output = ()>,
+        where
+            F: Fn() -> Fut,
+            Fut: Future<Output = ()>,
     {
         let removed_indices: Vec<u32> = self
             .storage
@@ -292,11 +292,11 @@ where
             .filter_map(|p_index| match self.storage.get(&p_index) {
                 Some(p_node) => Some((p_index, p_node)),
                 None => None,
-            })
-            .collect();
-
+            }).collect();
+        
         // Iterate all target nodes
         for (p_index, p_node) in target_nodes {
+
             // Candidates excluding removed indiecs
             let candidates: Vec<_> = p_node
                 .edges()
@@ -317,13 +317,13 @@ where
                 .dedup()
                 .filter_map(|candidate_node_index| {
                     if removed_indices.contains(&candidate_node_index) {
-                        return None;
+                        return None
                     };
                     match self.storage.get(&candidate_node_index) {
                         Some(candidate_node) => {
                             let dist = Dist(candidate_node.point().distance(&p_node.point));
                             Some((dist, candidate_node_index))
-                        }
+                        },
                         None => None,
                     }
                 })
@@ -332,13 +332,10 @@ where
             let new_edges = self.prune(candidates, a);
 
             // Update edge
-            self.storage.set(
-                p_index,
-                Node {
-                    edges: new_edges,
-                    point: p_node.point(),
-                },
-            );
+            self.storage.set(p_index, Node {
+                edges: new_edges,
+                point: p_node.point(),
+            });
 
             commit().await;
         }
