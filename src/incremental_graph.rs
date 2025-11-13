@@ -538,7 +538,7 @@ mod tests {
             let keys: Vec<_> = self.nodes.keys().collect();
 
             loop {
-                let Some(&random_key) = keys.get(rng.random_range(0..keys.len())) else {
+                let Some(&random_key) = keys.get(rng.gen_range(0..keys.len())) else {
                     panic!("btree is empty")
                 };
 
@@ -559,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_get() {
-        let mut rng: SmallRng = SmallRng::from_rng(&mut rand::rng());
+        let mut rng: SmallRng = SmallRng::from_entropy();
         let mut graph: Graph<Point, TestStorage, R, SmallRng> = Graph::init(DIM);
 
         env_logger::init();
@@ -583,7 +583,7 @@ mod tests {
         let hit_counts: f32 = test_points[split_count as usize..]
             .par_iter()
             .map_init(
-                || SmallRng::from_rng(&mut rand::rng()),
+                || SmallRng::from_entropy(),
                 |rng, (_, p)| {
                     let p = p.clone();
                     let ground_truth: Vec<(Dist<f32>, u32)> = test_points
@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let mut rng: SmallRng = SmallRng::from_rng(&mut rand::rng());
+        let mut rng: SmallRng = SmallRng::from_entropy();
         let mut graph: Graph<Point, TestStorage, R, SmallRng> = Graph::init(DIM);
 
         env_logger::init();
@@ -660,7 +660,7 @@ mod tests {
 
         // Assert result does not include removed indices
         test_points.par_iter().for_each_init(
-            || SmallRng::from_rng(&mut rand::rng()),
+            || SmallRng::from_entropy(),
             |rng, (_, p)| {
                 let result = graph.search(p, L, rng);
                 result
